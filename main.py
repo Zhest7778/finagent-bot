@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+SHEET_ID = os.environ.get("SPREADSHEET_ID")
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
