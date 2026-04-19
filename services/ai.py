@@ -1,7 +1,7 @@
 import os
 import json
 import base64
-from google import genai
+import google.generativeai as genai
 from google.genai import types
 from config import GEMINI_API_KEY
 
