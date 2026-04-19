@@ -1,4 +1,10 @@
-import logging
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
