@@ -92,8 +92,9 @@ async def show_table(update, context, spreadsheet_id):
         lines.append(f"\n_Всего: {len(records)} записей_")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
     except Exception as e:
-            except Exception as e:
         import traceback
         err = traceback.format_exc()
-        await update.message.reply_text(f"❌ Ошибка: {type(e).__name__}: {e}\n\n<pre>{err[-800:]}</pre>", parse_mode="HTML")
-
+        await update.message.reply_text(
+            f"❌ Ошибка: {type(e).__name__}: {e}\n\n<pre>{err[-800:]}</pre>",
+            parse_mode="HTML"
+        )
