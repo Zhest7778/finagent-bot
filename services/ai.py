@@ -34,7 +34,7 @@ def parse_transaction(text: str) -> dict:
         "- Если не указан отправитель — используй " + DEFAULT_COMPANY + "\n"
         "- currency по умолчанию: EUR\n"
         "- type: expense если мы платим, income если получаем\n\n"
-        'Формат: {"date":"дд.мм.гггг","amount":0,"currency":"EUR","from_party":"","to_party":"","comment":"","type":"expense","missing_fields":[]}\n\n'
+        '{"date":"дд.мм.гггг","amount":0,"currency":"EUR","from_party":"","to_party":"","comment":"","type":"expense","missing_fields":[]}\n\n'
         "Только JSON без markdown.\n\nКоманда: " + text
     )
     try:
@@ -103,3 +103,20 @@ def smart_reply(text: str) -> str:
         return client.models.generate_content(model=MODEL, contents=prompt).text.strip()
     except Exception as e:
         return "Ошибка: " + str(e)
+
+def extract_project(text: str) -> str:
+    """Извлекает название проекта из текста транзакции через Gemini."""
+    try:
+        prompt = (
+            "Из следующего текста извлеки название проекта, события или мероприятия "
+            "к которому относится платёж. Это может быть название фестиваля, концерта, "
+            "строительного объекта, клиента или договора. "
+            "Верни ТОЛЬКО название проекта одной строкой без кавычек и без пояснений. "
+            "Если проект не упомянут явно — верни пустую строку.\n\n"
+            "Текст: " + text
+        )
+        response = client.models.generate_content(model=MODEL, contents=prompt)
+        result = response.text.strip().strip('"'+"'"+'\n')
+        return result if result and len(result) < 80 else ""
+    except Exception:
+        return ""

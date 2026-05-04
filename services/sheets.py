@@ -1,5 +1,4 @@
 import gspread
-import json
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import sys, os
@@ -14,9 +13,10 @@ SCOPES = [
 ]
 
 def get_gspread_client():
+    import json as _json
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
-        creds_info = json.loads(creds_json)
+        creds_info = _json.loads(creds_json)
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     else:
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=SCOPES)
@@ -51,7 +51,8 @@ def add_transaction(spreadsheet_id, data):
         data.get("comment", ""),
         data.get("from_party", ""),
         data.get("to_party", ""),
-        data.get("document", "")
+        data.get("document", ""),
+        data.get("project", ""),
     ]
     ws.append_row(row)
     return next_num
@@ -67,11 +68,8 @@ def add_client(spreadsheet_id, data):
     ])
 
 def delete_client(spreadsheet_id, record_index):
-    """Удаляет контрагента. record_index — 0-based индекс в списке записей (без заголовка).
-    Строка в таблице = record_index + 2 (1 — заголовок, +1 т.к. gspread 1-based).
-    """
     ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    sheet_row = record_index + 2  # строка 1 = заголовок, данные с строки 2
+    sheet_row = record_index + 2
     ws.delete_rows(sheet_row)
 
 def get_all_transactions(spreadsheet_id):
@@ -95,7 +93,6 @@ def get_all_clients(spreadsheet_id):
         return []
     result = []
     for row in all_values:
-        # Пропускаем полностью пустые строки и строку-заголовок если она есть
         if not any(row):
             continue
         if row == CLIENT_HEADERS:
@@ -105,27 +102,7 @@ def get_all_clients(spreadsheet_id):
     return result
 
 def attach_document_to_row(spreadsheet_id, row_num, file_link):
-    """row_num — номер транзакции (значение в колонке №).
-    Ищем строку по значению в колонке А.
-    """
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    all_rows = ws.get_all_values()
-    sheet_row = None
-    for i, row in enumerate(all_rows):
-        if str(row[0]) == str(row_num):
-            sheet_row = i + 1  # 1-based
-            break
-    if sheet_row is None:
-        sheet_row = row_num + 1  # fallback
-    cell = ws.cell(sheet_row, 8).value or ""
-    new_val = (cell + "\n" + file_link).strip() if cell else file_link
-    ws.update_cell(sheet_row, 8, new_val)
-
-def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    headers = ws.row_values(1)
-    if len(headers) < 9:
-        ws.update_cell(1, 9, "Аудио")
     all_rows = ws.get_all_values()
     sheet_row = None
     for i, row in enumerate(all_rows):
@@ -134,7 +111,26 @@ def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
             break
     if sheet_row is None:
         sheet_row = row_num + 1
-    ws.update_cell(sheet_row, 9, audio_link)
+    cell = ws.cell(sheet_row, 8).value or ""
+    new_val = (cell + "\n" + file_link).strip() if cell else file_link
+    ws.update_cell(sheet_row, 8, new_val)
+
+def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
+    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
+    headers = ws.row_values(1)
+    if len(headers) < 9:
+        ws.update_cell(1, 9, "Проект")
+    if len(headers) < 10:
+        ws.update_cell(1, 10, "Аудио")
+    all_rows = ws.get_all_values()
+    sheet_row = None
+    for i, row in enumerate(all_rows):
+        if str(row[0]) == str(row_num):
+            sheet_row = i + 1
+            break
+    if sheet_row is None:
+        sheet_row = row_num + 1
+    ws.update_cell(sheet_row, 10, audio_link)
 
 def log_action(spreadsheet_id, user_id, username, action, details=""):
     try:
