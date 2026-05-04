@@ -1,9 +1,8 @@
 import os
-import shutil
 import tempfile
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from services.ai import transcribe_voice, parse_transaction, parse_client, analyze_report_query, smart_reply
+from services.ai import transcribe_voice, parse_transaction, parse_client, analyze_report_query, smart_reply, extract_project
 from services.sheets import get_all_transactions
 from handlers.transaction import confirm_transaction_keyboard
 
@@ -17,13 +16,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
         tmp_path = tmp.name
 
-    # Сохраняем копию аудио для последующей привязки к транзакции
-    audio_backup_path = tmp_path + "_backup.ogg"
-
     try:
         tg_file = await context.bot.get_file(voice.file_id)
         await tg_file.download_to_drive(tmp_path)
-        shutil.copy2(tmp_path, audio_backup_path)
+
+        # Сохраняем file_id — не зависит от локального диска и не требует Drive
+        context.user_data["pending_audio_file_id"] = voice.file_id
 
         await msg.edit_text("🤖 Обрабатываю...")
         text = transcribe_voice(tmp_path)
@@ -32,17 +30,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         context.user_data["last_text"] = text
-        context.user_data["pending_audio_path"] = audio_backup_path
         await msg.edit_text(f"📝 Распознано: _{text}_", parse_mode="Markdown")
         await process_text_command(update, context, text)
 
     except Exception as e:
         await msg.edit_text(f"❌ Ошибка: {e}")
-        try: os.remove(audio_backup_path)
-        except: pass
     finally:
-        try: os.remove(tmp_path)
-        except: pass
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
 
 
 async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str = None):
@@ -69,6 +66,8 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if "error" in data:
             await update.message.reply_text("❌ Не удалось разобрать команду. Напишите подробнее.")
             return
+        # Gemini извлекает название проекта автоматически
+        data["project"] = extract_project(text)
         context.user_data["pending_transaction"] = data
         await confirm_transaction_keyboard(update, context, data)
 
@@ -104,11 +103,6 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await msg.edit_text(f"📈 *Отчёт:*\n\n{result}", parse_mode="Markdown")
 
     else:
+        context.user_data.pop("pending_audio_file_id", None)
         reply = smart_reply(text)
         await update.message.reply_text(reply)
-        # Если не транзакция — удаляем сохранённое аудио
-        try:
-            audio_path = context.user_data.pop("pending_audio_path", None)
-            if audio_path:
-                os.remove(audio_path)
-        except: pass

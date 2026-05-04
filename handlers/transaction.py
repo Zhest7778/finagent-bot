@@ -5,13 +5,15 @@ from services.sheets import add_transaction, add_client, get_all_clients, log_ac
 async def confirm_transaction_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE, data: dict):
     missing = [f for f in data.get("missing_fields", []) if f != "date"]
     type_emoji = "📥" if data.get("type") == "income" else "📤"
+    project_line = f"\n🗂 Проект: {data['project']}" if data.get("project") else ""
     text = (
-        f"{type_emoji} *Проект записи:*\n\n"
+        f"{type_emoji} *Проверка записи:*\n\n"
         f"📅 Дата: {data.get('date', '—')}\n"
         f"💶 Сумма: {data.get('amount', '—')} {data.get('currency', 'EUR')}\n"
         f"🔄 От: {data.get('from_party', '—')}\n"
         f"🔄 Кому: {data.get('to_party', '—')}\n"
         f"📝 Комментарий: {data.get('comment', '—')}"
+        f"{project_line}"
     )
     if missing:
         fields_ru = {"amount": "сумма", "from_party": "от кого", "to_party": "кому", "comment": "назначение"}
@@ -23,7 +25,6 @@ async def confirm_transaction_keyboard(update: Update, context: ContextTypes.DEF
     ]])
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
-    # Проверка контрагента в базе
     spreadsheet_id = context.user_data.get("spreadsheet_id")
     if spreadsheet_id:
         counterparty = data.get("to_party") or data.get("from_party")
@@ -65,7 +66,6 @@ async def check_counterparty(update, context, name: str, spreadsheet_id: str):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 
-    # Делегируем специализированным обработчикам
     from handlers.documents import handle_doc_callback
     from handlers.clients import handle_clients_callback
     from handlers.attach_doc import handle_attach_callback
@@ -96,14 +96,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                       f"#{num} {data.get('amount')} {data.get('currency')} {str(data.get('comment',''))[:30]}")
             context.user_data.pop("pending_transaction", None)
 
-            # Автосохранение аудио (только если была голосовая команда)
-            audio_path = context.user_data.pop("pending_audio_path", None)
-            if audio_path:
+            # Аудио через file_id — без Google Drive
+            file_id = context.user_data.pop("pending_audio_file_id", None)
+            if file_id:
                 from handlers.documents import save_voice_for_transaction
-                await save_voice_for_transaction(context, audio_path, num, user.id)
-                import os
-                try: os.remove(audio_path)
-                except: pass
+                await save_voice_for_transaction(context, file_id, num, user.id)
 
             from handlers.documents import offer_document_upload
             await offer_document_upload(query, context, num)
@@ -158,5 +155,5 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ Отменено.")
         for key in ["pending_transaction", "pending_client", "awaiting_doc_for",
                     "doc_upload_active", "unknown_counterparty", "manual_client_mode",
-                    "pending_audio_path"]:
+                    "pending_audio_file_id"]:
             context.user_data.pop(key, None)
