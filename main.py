@@ -1,11 +1,11 @@
 import os
 import logging
 from dotenv import load_dotenv
-
 load_dotenv()
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 SHEET_ID = os.environ.get("SPREADSHEET_ID")
+
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -41,11 +41,11 @@ async def set_table(update: Update, context):
     await update.message.reply_text(f"✅ Таблица подключена: `{sheet_id}`", parse_mode="Markdown")
 
 async def init_sheet(update: Update, context):
-    sheet_id = context.user_data.get("spreadsheet_id") or context.bot_data.get("spreadsheet_id")
+    _sync_spreadsheet_id(context)
+    sheet_id = context.user_data.get("spreadsheet_id")
     if not sheet_id:
         await update.message.reply_text("⚠️ Сначала подключите таблицу: /settable <ID>")
         return
-    context.user_data["spreadsheet_id"] = sheet_id
     msg = await update.message.reply_text("⏳ Инициализирую таблицу...")
     try:
         init_spreadsheet(sheet_id)
@@ -56,12 +56,15 @@ async def init_sheet(update: Update, context):
     except Exception as e:
         await msg.edit_text(f"❌ Ошибка: {e}")
 
-async def handle_text(update: Update, context):
+def _sync_spreadsheet_id(context):
+    """Синхронизирует spreadsheet_id из всех источников в user_data."""
     if not context.user_data.get("spreadsheet_id"):
         sid = context.bot_data.get("spreadsheet_id") or SPREADSHEET_ID
         if sid:
             context.user_data["spreadsheet_id"] = sid
 
+async def handle_text(update: Update, context):
+    _sync_spreadsheet_id(context)
     text = update.message.text
     if text in ALL_BUTTONS:
         await handle_menu_button(update, context)
@@ -90,10 +93,7 @@ async def handle_text(update: Update, context):
             await process_text_command(update, context, text)
 
 async def handle_voice_wrapper(update: Update, context):
-    if not context.user_data.get("spreadsheet_id"):
-        sid = context.bot_data.get("spreadsheet_id") or SPREADSHEET_ID
-        if sid:
-            context.user_data["spreadsheet_id"] = sid
+    _sync_spreadsheet_id(context)
     await handle_voice(update, context)
 
 def main():
