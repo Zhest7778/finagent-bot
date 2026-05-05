@@ -1,5 +1,18 @@
 import os
 import logging
+import os, json
+
+_raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+print(f"[DEBUG] GOOGLE_CREDENTIALS_JSON length: {len(_raw)}")
+if _raw:
+    try:
+        _parsed = json.loads(_raw)
+        print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email', 'NOT FOUND')}")
+        print(f"[DEBUG] project_id: {_parsed.get('project_id', 'NOT FOUND')}")
+    except Exception as e:
+        print(f"[DEBUG] JSON PARSE ERROR: {e}")
+else:
+    print("[DEBUG] GOOGLE_CREDENTIALS_JSON is EMPTY")
 from dotenv import load_dotenv
 load_dotenv()
 
