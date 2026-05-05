@@ -18,6 +18,10 @@ CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. н
 
 import json
 _creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-if _creds_json and not os.path.exists("credentials.json"):
-    with open("credentials.json", "w") as f:
-        f.write(_creds_json)
+if _creds_json:
+    # ВСЕГДА перезаписываем — иначе старый кэш мешает
+    try:
+        with open("credentials.json", "w") as f:
+            f.write(_creds_json)
+    except Exception:
+        pass
