@@ -22,35 +22,32 @@ CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. н
 
 
 def get_gspread_client():
-    creds_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json")
+    # Ищем credentials.json
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    creds_file = os.path.join(base_dir, "credentials.json")
     if not os.path.exists(creds_file):
         creds_file = "credentials.json"
-    
-    print(f"[DEBUG] creds_file path: {creds_file}")
-    print(f"[DEBUG] file exists: {os.path.exists(creds_file)}")
+
+    print(f"[DEBUG] base_dir={base_dir}", flush=True)
+    print(f"[DEBUG] creds_file={creds_file} exists={os.path.exists(creds_file)}", flush=True)
+    print(f"[DEBUG] cwd={os.getcwd()}", flush=True)
+    print(f"[DEBUG] files in cwd={os.listdir(os.getcwd())}", flush=True)
+
     if os.path.exists(creds_file):
         with open(creds_file) as _f:
             _d = _json.load(_f)
-            print(f"[DEBUG] client_email: {_d.get('client_email')}")
-            print(f"[DEBUG] project_id: {_d.get('project_id')}")
-        """Авторизация: сначала credentials.json (записан из env в config.py), потом напрямую из env."""
-    creds_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json")
-    if not os.path.exists(creds_file):
-        creds_file = "credentials.json"
-
-    if os.path.exists(creds_file):
+        print(f"[DEBUG] client_email={_d.get('client_email')}", flush=True)
         creds = Credentials.from_service_account_file(creds_file, scopes=SCOPES)
         return gspread.authorize(creds)
 
-    # Fallback: напрямую из env
     raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    print(f"[DEBUG] env JSON length={len(raw)}", flush=True)
     if raw:
         info = _json.loads(raw)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
 
     raise FileNotFoundError("Нет credentials.json и нет GOOGLE_CREDENTIALS_JSON в env")
-
 
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
     gc = get_gspread_client()
