@@ -2,12 +2,10 @@ import gspread
 import json as _json
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-from config import GOOGLE_CREDENTIALS_FILE, DEFAULT_HEADERS, CLIENT_HEADERS
-from config import SHEET_TRANSACTIONS, SHEET_CLIENTS, SHEET_TEMPLATES_META, SHEET_LOGS
 
 SCOPES = [
     "https://spreadsheets.google.com/feeds",
@@ -15,42 +13,32 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+SHEET_TRANSACTIONS = "Транзакции"
+SHEET_CLIENTS = "Контрагенты"
+SHEET_TEMPLATES_META = "_meta"
+SHEET_LOGS = "_logs"
+DEFAULT_HEADERS = ["№", "Дата", "Сумма", "Валюта", "Комментарий", "Откуда", "Куда", "Документ", "Проект"]
+CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. номер", "VAT", "Адрес", "Руководитель", "Контакты", "Страна", "ЕС"]
+
 
 def get_gspread_client():
-    """Авторизация через GOOGLE_CREDENTIALS_JSON (env) или файл."""
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    """Авторизация: сначала credentials.json (записан из env в config.py), потом напрямую из env."""
+    creds_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json")
+    if not os.path.exists(creds_file):
+        creds_file = "credentials.json"
 
-    if creds_json:
-        # Railway иногда оборачивает JSON в одиночные кавычки или добавляет \n
-        # Пробуем три варианта парсинга
-        raw = creds_json
-        for attempt in range(3):
-            try:
-                if attempt == 0:
-                    creds_info = _json.loads(raw)
-                elif attempt == 1:
-                    # Убираем внешние одиночные кавычки если есть
-                    creds_info = _json.loads(raw.strip("'"))
-                elif attempt == 2:
-                    # Заменяем экранированные переносы строк в private_key
-                    creds_info = _json.loads(raw.replace("\\n", "\n"))
-                creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-                return gspread.authorize(creds)
-            except Exception:
-                continue
-        raise ValueError(
-            "Не удалось распарсить GOOGLE_CREDENTIALS_JSON. "
-            "Убедитесь что переменная в Railway содержит валидный JSON без лишних кавычек."
-        )
-
-    # Fallback: файл credentials.json
-    if os.path.exists(GOOGLE_CREDENTIALS_FILE):
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=SCOPES)
+    if os.path.exists(creds_file):
+        creds = Credentials.from_service_account_file(creds_file, scopes=SCOPES)
         return gspread.authorize(creds)
 
-    raise FileNotFoundError(
-        f"Нет ни GOOGLE_CREDENTIALS_JSON в env, ни файла {GOOGLE_CREDENTIALS_FILE}"
-    )
+    # Fallback: напрямую из env
+    raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if raw:
+        info = _json.loads(raw)
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        return gspread.authorize(creds)
+
+    raise FileNotFoundError("Нет credentials.json и нет GOOGLE_CREDENTIALS_JSON в env")
 
 
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
@@ -154,8 +142,6 @@ def attach_document_to_row(spreadsheet_id, row_num, file_link):
 def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
     headers = ws.row_values(1)
-    if len(headers) < 9:
-        ws.update_cell(1, 9, "Проект")
     if len(headers) < 10:
         ws.update_cell(1, 10, "Аудио")
     all_rows = ws.get_all_values()
