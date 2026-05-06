@@ -51,6 +51,9 @@ def get_gspread_client():
 
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
     gc = get_gspread_client()
+    def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
+    gc = get_gspread_client()
+    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}' len={len(spreadsheet_id)}", flush=True)
     sh = gc.open_by_key(spreadsheet_id)
     try:
         ws = sh.worksheet(sheet_name)
