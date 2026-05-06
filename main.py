@@ -54,20 +54,19 @@ async def set_table(update: Update, context):
     await update.message.reply_text(f"✅ Таблица подключена: `{sheet_id}`", parse_mode="Markdown")
 
 async def init_sheet(update: Update, context):
-    _sync_spreadsheet_id(context)
-    sheet_id = context.user_data.get("spreadsheet_id")
+    sheet_id = context.user_data.get("spreadsheet_id") or context.bot_data.get("spreadsheet_id")
     if not sheet_id:
         await update.message.reply_text("⚠️ Сначала подключите таблицу: /settable <ID>")
         return
     msg = await update.message.reply_text("⏳ Инициализирую таблицу...")
     try:
         init_spreadsheet(sheet_id)
-        await msg.edit_text(
-            "✅ Готово! Листы созданы:\n"
-            "• Транзакции\n• Контрагенты\n• _meta\n• _logs"
-        )
+        await msg.edit_text("✅ Готово!")
     except Exception as e:
-        await msg.edit_text(f"❌ Ошибка: {e}")
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[ERROR] init_sheet: {tb}", flush=True)
+        await msg.edit_text(f"❌ Ошибка:\n```{str(e)[:300]}```", parse_mode="Markdown")
 
 def _sync_spreadsheet_id(context):
     """Синхронизирует spreadsheet_id из всех источников в user_data."""
