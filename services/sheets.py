@@ -22,16 +22,12 @@ CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. н
 
 
 def get_gspread_client():
-    # Ищем credentials.json
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     creds_file = os.path.join(base_dir, "credentials.json")
     if not os.path.exists(creds_file):
         creds_file = "credentials.json"
 
-    print(f"[DEBUG] base_dir={base_dir}", flush=True)
     print(f"[DEBUG] creds_file={creds_file} exists={os.path.exists(creds_file)}", flush=True)
-    print(f"[DEBUG] cwd={os.getcwd()}", flush=True)
-    print(f"[DEBUG] files in cwd={os.listdir(os.getcwd())}", flush=True)
 
     if os.path.exists(creds_file):
         with open(creds_file) as _f:
@@ -49,11 +45,10 @@ def get_gspread_client():
 
     raise FileNotFoundError("Нет credentials.json и нет GOOGLE_CREDENTIALS_JSON в env")
 
+
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
     gc = get_gspread_client()
-    def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
-    gc = get_gspread_client()
-    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}' len={len(spreadsheet_id)}", flush=True)
+    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}' len={len(str(spreadsheet_id))}", flush=True)
     sh = gc.open_by_key(spreadsheet_id)
     try:
         ws = sh.worksheet(sheet_name)
@@ -144,7 +139,7 @@ def attach_document_to_row(spreadsheet_id, row_num, file_link):
             sheet_row = i + 1
             break
     if sheet_row is None:
-        sheet_row = row_num + 1
+        sheet_row = int(row_num) + 1
     cell = ws.cell(sheet_row, 8).value or ""
     new_val = (cell + "\n" + file_link).strip() if cell else file_link
     ws.update_cell(sheet_row, 8, new_val)
@@ -162,7 +157,7 @@ def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
             sheet_row = i + 1
             break
     if sheet_row is None:
-        sheet_row = row_num + 1
+        sheet_row = int(row_num) + 1
     ws.update_cell(sheet_row, 10, audio_link)
 
 
