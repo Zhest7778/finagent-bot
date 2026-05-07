@@ -36,7 +36,7 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 async def post_init(application):
     if SPREADSHEET_ID:
-        application.bot_data["spreadsheet_id"] = SPREADSHEET_ID
+        application.bot_data["spreadsheet_id"] = SPREADSHEET_ID.strip()
         print(f"✅ Таблица подключена: {SPREADSHEET_ID}")
     else:
         print("⚠️  SPREADSHEET_ID не задан в .env — используйте /settable")
