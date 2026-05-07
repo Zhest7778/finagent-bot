@@ -70,6 +70,12 @@ def get_all_transactions(spreadsheet_id: str) -> list:
 def get_budgets(spreadsheet_id: str) -> list:
     ws = get_or_create_sheet(spreadsheet_id, SHEET_BUDGETS, ["Категория", "Лимит", "Период"])
     return ws.get_all_records()
+    
+def get_all_clients(spreadsheet_id: str) -> list:
+    """Возвращает список уникальных клиентов из транзакций."""
+    transactions = get_all_transactions(spreadsheet_id)
+    clients = list({t.get("client", "") for t in transactions if t.get("client")})
+    return sorted(clients)
 
 
 def set_budget(spreadsheet_id: str, category: str, limit: float, period: str = "месяц"):
