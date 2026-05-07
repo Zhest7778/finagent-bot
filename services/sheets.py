@@ -18,7 +18,7 @@ SHEET_BUDGETS = "Бюджеты"
 SHEET_CLIENTS = "Клиенты"
 SHEET_LOG = "Лог"
 
-DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Категория", "Описание", "Пользователь"]
+DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Категория", "Описание", "Пользователь", "Документ", "Аудио"]
 CLIENT_HEADERS = ["Имя", "User_ID"]
 LOG_HEADERS = ["Дата", "User_ID", "Действие", "Детали"]
 
@@ -44,12 +44,11 @@ def get_gspread_client() -> gspread.Client:
 
 def get_or_create_sheet(spreadsheet_id: str, sheet_name: str, headers: list) -> gspread.Worksheet:
     gc = get_gspread_client()
-    logger.info(f"DEBUG opening spreadsheet {spreadsheet_id}")
     sh = gc.open_by_key(spreadsheet_id)
     try:
         worksheet = sh.worksheet(sheet_name)
     except gspread.exceptions.WorksheetNotFound:
-        worksheet = sh.add_worksheet(title=sheet_name, rows=1000, cols=len(headers))
+        worksheet = sh.add_worksheet(title=sheet_name, rows=1000, cols=max(len(headers), 10))
         worksheet.append_row(headers)
         logger.info(f"Created sheet: {sheet_name}")
     return worksheet
@@ -63,7 +62,10 @@ def init_spreadsheet(spreadsheet_id: str):
     logger.info("Spreadsheet initialized successfully")
 
 
+# ─── Транзакции ───────────────────────────────────────────────────────────────
+
 def append_transaction(spreadsheet_id: str, row: list):
+    """Добавляет строку-список в лист Транзакции."""
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
     ws.append_row(row, value_input_option="USER_ENTERED")
 
@@ -78,6 +80,8 @@ def add_transaction(spreadsheet_id: str, data: dict) -> bool:
             data.get("category", ""),
             data.get("description", ""),
             str(data.get("user_id", "")),
+            data.get("document", ""),
+            data.get("audio", ""),
         ]
         append_transaction(spreadsheet_id, row)
         return True
@@ -88,16 +92,48 @@ def add_transaction(spreadsheet_id: str, data: dict) -> bool:
 
 def get_all_transactions(spreadsheet_id: str) -> list:
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    records = ws.get_all_records()
-    return records
+    return ws.get_all_records()
 
+
+def _find_last_row(spreadsheet_id: str) -> int:
+    """Возвращает номер последней заполненной строки в листе Транзакции (1-based)."""
+    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
+    values = ws.col_values(1)  # колонка Дата
+    return len(values)  # включая заголовок
+
+
+def attach_document_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
+    """Прикрепляет ссылку на документ к строке row_index (1-based) в колонке 'Документ' (7)."""
+    try:
+        ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
+        ws.update_cell(row_index, 7, file_url)
+        logger.info(f"attach_document_to_row: row={row_index} url={file_url}")
+        return True
+    except Exception as e:
+        logger.error(f"attach_document_to_row error: {e}")
+        return False
+
+
+def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
+    """Прикрепляет ссылку на аудио к строке row_index (1-based) в колонке 'Аудио' (8)."""
+    try:
+        ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
+        ws.update_cell(row_index, 8, file_url)
+        logger.info(f"attach_audio_to_row: row={row_index} url={file_url}")
+        return True
+    except Exception as e:
+        logger.error(f"attach_audio_to_row error: {e}")
+        return False
+
+
+# ─── Клиенты ──────────────────────────────────────────────────────────────────
 
 def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
-    """Добавляет клиента в лист Клиенты (без дублей)."""
+    """Добавляет клиента в лист Клиенты без дублей."""
     try:
         existing = get_all_clients(spreadsheet_id)
         if name in existing:
-            return True  # уже есть
+            return True
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
         ws.append_row([name, str(user_id or "")], value_input_option="USER_ENTERED")
         return True
@@ -107,7 +143,7 @@ def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
 
 
 def get_all_clients(spreadsheet_id: str) -> list:
-    """Возвращает список клиентов из листа Клиенты."""
+    """Возвращает список имён клиентов из листа Клиенты."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
         records = ws.get_all_records()
@@ -117,8 +153,10 @@ def get_all_clients(spreadsheet_id: str) -> list:
         return []
 
 
+# ─── Лог ──────────────────────────────────────────────────────────────────────
+
 def log_action(spreadsheet_id: str, user_id: int, action: str, detail: str = "") -> None:
-    """Логирует действие в лист Лог."""
+    """Логирует действие пользователя в лист Лог."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_LOG, LOG_HEADERS)
         ws.append_row(
@@ -128,6 +166,8 @@ def log_action(spreadsheet_id: str, user_id: int, action: str, detail: str = "")
     except Exception as e:
         logger.error(f"log_action error: {e}")
 
+
+# ─── Бюджеты ──────────────────────────────────────────────────────────────────
 
 def get_budgets(spreadsheet_id: str) -> list:
     ws = get_or_create_sheet(spreadsheet_id, SHEET_BUDGETS, ["Категория", "Лимит", "Период"])
