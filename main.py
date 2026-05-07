@@ -1,6 +1,16 @@
 import os
 import logging
-import os, json
+import os, json, base64
+
+raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+data = json.loads(raw)
+pk = data["private_key"]
+
+# Показываем первые символы ключа
+print(f"[KEY] repr первых 60 символов: {repr(pk[:60])}")
+print(f"[KEY] repr последних 40 символов: {repr(pk[-40:])}")
+print(f"[KEY] реальные переносы строк (chr 10): {pk.count(chr(10))}")
+print(f"[KEY] буквальные \\n: {pk.count(chr(92)+'n')}")
 
 raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
 data = json.loads(raw)
