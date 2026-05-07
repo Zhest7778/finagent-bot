@@ -2,7 +2,20 @@ import os
 import logging
 import json
 _parsed = json.loads(_raw)
+import json
+import google.auth
+from google.oauth2 import service_account
+
+creds = service_account.Credentials.from_service_account_info(
+    json.loads(open('credentials.json').read())
+)
+print("Credentials loaded OK")
+except google.auth.exceptions.RefreshError as e:
+    if "Invalid JWT Signature" in str(e):
+        logger.error("Проблема с Service Account ключом. Нужно пересоздать.")
+        
 print(f"[DEBUG] private_key_id: {_parsed.get('private_key_id')}", flush=True)
+
 
 from dotenv import load_dotenv
 load_dotenv()
