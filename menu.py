@@ -1,6 +1,6 @@
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
-from services.sheets import get_all_transactions, get_all_clients
+from services.sheets import get_all_transactions
 from config import ADMIN_TELEGRAM_ID, SPREADSHEET_ID as DEFAULT_SID
 
 MAIN_MENU = ReplyKeyboardMarkup([
