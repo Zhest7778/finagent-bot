@@ -23,6 +23,10 @@ CLIENT_HEADERS = ["Имя", "User_ID"]
 LOG_HEADERS = ["Дата", "User_ID", "Действие", "Детали"]
 
 b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+print(f"[DEBUG] B64 length: {len(b64)}")
+print(f"[DEBUG] B64 first 20 chars: {repr(b64[:20])}")
+print(f"[DEBUG] B64 has newlines: {chr(10) in b64}")
 print(f"[DEBUG] B64 length: {len(b64)}")
 
 
