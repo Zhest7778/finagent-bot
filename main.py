@@ -2,6 +2,16 @@ import os
 import logging
 import os, json
 
+raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+data = json.loads(raw)
+pk = data["private_key"]
+
+print(f"[KEY DEBUG] first 50 chars: {repr(pk[:50])}")
+print(f"[KEY DEBUG] has real newlines: {chr(10) in pk}")
+print(f"[KEY DEBUG] has literal \\n: {'\\\\n' in pk}")
+print(f"[KEY DEBUG] starts correctly: {pk.startswith('-----BEGIN PRIVATE KEY-----')}")
+
+
 _raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 print(f"[DEBUG] GOOGLE_CREDENTIALS_JSON length: {len(_raw)}")
 if _raw:
