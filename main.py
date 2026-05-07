@@ -1,49 +1,47 @@
 import os
 import logging
 import json
-_parsed = json.loads(_raw)
-import json
-import google.auth
-from google.oauth2 import service_account
-
-creds = service_account.Credentials.from_service_account_info(
-    json.loads(open('credentials.json').read())
-)
-print("Credentials loaded OK")
-except google.auth.exceptions.RefreshError as e:
-    if "Invalid JWT Signature" in str(e):
-        logger.error("Проблема с Service Account ключом. Нужно пересоздать.")
-        
-print(f"[DEBUG] private_key_id: {_parsed.get('private_key_id')}", flush=True)
-
-
+import traceback
 from dotenv import load_dotenv
+
 load_dotenv()
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-SHEET_ID = os.environ.get("SPREADSHEET_ID")
+# ====================== ДИАГНОСТИКА GOOGLE CREDENTIALS ======================
+print("\n[DEBUG] === GOOGLE CREDENTIALS CHECK START ===", flush=True)
 
-# --- Диагностика credentials при старте ---
-_raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+_raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 print(f"[DEBUG] GOOGLE_CREDENTIALS_JSON length: {len(_raw)}", flush=True)
+
 if _raw:
     try:
         _parsed = json.loads(_raw)
-        print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email', 'NOT FOUND')}", flush=True)
-        print(f"[DEBUG] project_id: {_parsed.get('project_id', 'NOT FOUND')}", flush=True)
+        print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email')}", flush=True)
+        print(f"[DEBUG] project_id: {_parsed.get('project_id')}", flush=True)
+        
         _pk = _parsed.get("private_key", "")
         print(f"[DEBUG] private_key length={len(_pk)} newlines={_pk.count(chr(10))}", flush=True)
+        
+        if not _pk.startswith("-----BEGIN PRIVATE KEY-----"):
+            print("[WARNING] private_key имеет неправильный формат!", flush=True)
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] GOOGLE_CREDENTIALS_JSON — невалидный JSON: {e}", flush=True)
     except Exception as e:
-        print(f"[DEBUG] JSON PARSE ERROR: {e}", flush=True)
+        print(f"[ERROR] Credentials check failed: {e}", flush=True)
 else:
-    print("[DEBUG] GOOGLE_CREDENTIALS_JSON is EMPTY", flush=True)
-# ------------------------------------------
+    print("[ERROR] GOOGLE_CREDENTIALS_JSON is empty or not set!", flush=True)
+
+print("[DEBUG] === GOOGLE CREDENTIALS CHECK END ===\n", flush=True)
+# ============================================================================
 
 from telegram import Update
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters
 )
+
 from config import TELEGRAM_BOT_TOKEN, SPREADSHEET_ID
 from handlers.start import start, help_command
 from handlers.voice import handle_voice, process_text_command
@@ -52,7 +50,10 @@ from handlers.menu import handle_menu_button, ALL_BUTTONS
 from handlers.documents import handle_incoming_file, attach_last_command, done_command
 from services.sheets import init_spreadsheet
 
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
 
 async def post_init(application):
@@ -60,16 +61,18 @@ async def post_init(application):
         application.bot_data["spreadsheet_id"] = SPREADSHEET_ID.strip()
         print(f"✅ Таблица подключена: {SPREADSHEET_ID}", flush=True)
     else:
-        print("⚠️  SPREADSHEET_ID не задан в .env — используйте /settable", flush=True)
+        print("⚠️ SPREADSHEET_ID не задан в .env — используйте /settable", flush=True)
 
 
 async def set_table(update: Update, context):
     if not context.args:
         await update.message.reply_text(
-            "Использование: /settable <ID таблицы>\n\n"
-            "ID находится в URL таблицы между /d/ и /edit"
+            "Использование: `/settable <ID таблицы>`\n\n"
+            "ID находится в URL Google таблицы между `/d/` и `/edit`",
+            parse_mode="Markdown"
         )
         return
+
     sheet_id = context.args[0].strip()
     context.user_data["spreadsheet_id"] = sheet_id
     context.bot_data["spreadsheet_id"] = sheet_id
@@ -81,19 +84,18 @@ async def init_sheet(update: Update, context):
     if not sheet_id:
         await update.message.reply_text("⚠️ Сначала подключите таблицу: /settable <ID>")
         return
+
     msg = await update.message.reply_text("⏳ Инициализирую таблицу...")
     try:
         init_spreadsheet(sheet_id)
-        await msg.edit_text("✅ Готово!")
+        await msg.edit_text("✅ Таблица успешно инициализирована!")
     except Exception as e:
-        import traceback
         tb = traceback.format_exc()
         print(f"[ERROR] init_sheet: {tb}", flush=True)
-        await msg.edit_text(f"❌ Ошибка:\n```{str(e)[:300]}```", parse_mode="Markdown")
+        await msg.edit_text(f"❌ Ошибка:\n```{str(e)[:500]}```", parse_mode="Markdown")
 
 
 def _sync_spreadsheet_id(context):
-    """Синхронизирует spreadsheet_id из всех источников в user_data."""
     if not context.user_data.get("spreadsheet_id"):
         sid = context.bot_data.get("spreadsheet_id") or SPREADSHEET_ID
         if sid:
@@ -103,31 +105,11 @@ def _sync_spreadsheet_id(context):
 async def handle_text(update: Update, context):
     _sync_spreadsheet_id(context)
     text = update.message.text
+
     if text in ALL_BUTTONS:
         await handle_menu_button(update, context)
     else:
-        if context.user_data.get("manual_client_mode"):
-            context.user_data.pop("manual_client_mode", None)
-            from services.ai import parse_client
-            data = parse_client(text)
-            if "error" in data:
-                await update.message.reply_text("❌ Не удалось разобрать данные. Попробуйте ещё раз.")
-                return
-            context.user_data["pending_client"] = data
-            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-            keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ Сохранить", callback_data="save_client"),
-                InlineKeyboardButton("❌ Отменить", callback_data="cancel")
-            ]])
-            await update.message.reply_text(
-                f"🏢 *Контрагент:*\n"
-                f"• Название: {data.get('company_name','—')}\n"
-                f"• CIF/NIF: {data.get('reg_number','—')}\n"
-                f"• Адрес: {data.get('address','—')}\n\nСохранить?",
-                parse_mode="Markdown", reply_markup=keyboard
-            )
-        else:
-            await process_text_command(update, context, text)
+        await process_text_command(update, context, text)
 
 
 async def handle_voice_wrapper(update: Update, context):
@@ -142,16 +124,19 @@ def main():
         .post_init(post_init)
         .build()
     )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("settable", set_table))
     app.add_handler(CommandHandler("initsheet", init_sheet))
     app.add_handler(CommandHandler("attachlast", attach_last_command))
     app.add_handler(CommandHandler("done", done_command))
+
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice_wrapper))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_incoming_file))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(handle_callback))
+
     print("🚀 FinAgent Bot запущен!", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
