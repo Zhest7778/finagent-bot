@@ -1,6 +1,8 @@
 import os
 import logging
 import json
+_parsed = json.loads(_raw)
+print(f"[DEBUG] private_key_id: {_parsed.get('private_key_id')}", flush=True)
 
 from dotenv import load_dotenv
 load_dotenv()
