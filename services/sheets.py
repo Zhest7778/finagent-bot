@@ -22,6 +22,9 @@ DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Категория", "О
 CLIENT_HEADERS = ["Имя", "User_ID"]
 LOG_HEADERS = ["Дата", "User_ID", "Действие", "Детали"]
 
+b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+print(f"[DEBUG] B64 length: {len(b64)}")
+
 
 def get_gspread_client() -> gspread.Client:
     b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
