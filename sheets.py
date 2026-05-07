@@ -1,12 +1,11 @@
 import gspread
 import json as _json
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from google.oauth2.service_account import Credentials
 from datetime import datetime
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import GOOGLE_CREDENTIALS_FILE, DEFAULT_HEADERS, CLIENT_HEADERS
-from config import SHEET_TRANSACTIONS, SHEET_CLIENTS, SHEET_TEMPLATES_META, SHEET_LOGS
 
 SCOPES = [
     "https://spreadsheets.google.com/feeds",
@@ -14,26 +13,55 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+SHEET_TRANSACTIONS = "Транзакции"
+SHEET_CLIENTS = "Контрагенты"
+SHEET_TEMPLATES_META = "_meta"
+SHEET_LOGS = "_logs"
+DEFAULT_HEADERS = ["№", "Дата", "Сумма", "Валюта", "Комментарий", "Откуда", "Куда", "Документ", "Проект"]
+CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. номер", "VAT", "Адрес", "Руководитель", "Контакты", "Страна", "ЕС"]
+
+
 def get_gspread_client():
-    creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
-    if creds_json_str:
-        try:
-            info = _json.loads(creds_json_str)
-            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-            return gspread.authorize(creds)
-        except Exception as e:
-            raise RuntimeError(f"Ошибка разбора GOOGLE_CREDENTIALS_JSON: {e}")
-    # Fallback: файл на диске
-    if os.path.exists(GOOGLE_CREDENTIALS_FILE):
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=SCOPES)
+    # Всегда читаем напрямую из env — никакого промежуточного файла
+    raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if raw:
+        info = _json.loads(raw)
+        # Восстанавливаем \n в private_key если они были заменены пробелами
+        pk = info.get("private_key", "")
+        if "\\n" in pk:
+            info["private_key"] = pk.replace("\\n", "\n")
+        pk = info.get("private_key", "")
+        print(f"[DEBUG] Using env JSON, client_email={info.get('client_email')}", flush=True)
+        print(f"[DEBUG] private_key length={len(pk)} newlines={pk.count(chr(10))}", flush=True)
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
-    raise RuntimeError(
-        "Не найдены учётные данные Google. "
-        "Добавьте GOOGLE_CREDENTIALS_JSON в Railway Variables."
+
+    # Fallback: файл на диске (только если env не задан)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    creds_file = os.path.join(base_dir, "credentials.json")
+    if not os.path.exists(creds_file):
+        creds_file = "credentials.json"
+
+    if os.path.exists(creds_file):
+        with open(creds_file) as _f:
+            info = _json.load(_f)
+        pk = info.get("private_key", "")
+        if "\\n" in pk:
+            info["private_key"] = pk.replace("\\n", "\n")
+        pk = info.get("private_key", "")
+        print(f"[DEBUG] Using file {creds_file}, client_email={info.get('client_email')}", flush=True)
+        print(f"[DEBUG] private_key length={len(pk)} newlines={pk.count(chr(10))}", flush=True)
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        return gspread.authorize(creds)
+
+    raise FileNotFoundError(
+        "Нет GOOGLE_CREDENTIALS_JSON в env и нет credentials.json на диске"
     )
+
 
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
     gc = get_gspread_client()
+    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}'", flush=True)
     sh = gc.open_by_key(spreadsheet_id)
     try:
         ws = sh.worksheet(sheet_name)
@@ -43,11 +71,13 @@ def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
             ws.append_row(headers)
     return ws
 
+
 def init_spreadsheet(spreadsheet_id):
     get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
     get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
     get_or_create_sheet(spreadsheet_id, SHEET_TEMPLATES_META, ["Шаблон", "Последний номер"])
     get_or_create_sheet(spreadsheet_id, SHEET_LOGS, ["Время", "User ID", "Username", "Действие", "Детали"])
+
 
 def add_transaction(spreadsheet_id, data):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
@@ -67,6 +97,7 @@ def add_transaction(spreadsheet_id, data):
     ws.append_row(row)
     return next_num
 
+
 def add_client(spreadsheet_id, data):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
     ws.append_row([
@@ -77,10 +108,11 @@ def add_client(spreadsheet_id, data):
         data.get("is_eu", "Нет")
     ])
 
+
 def delete_client(spreadsheet_id, record_index):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    sheet_row = record_index + 2
-    ws.delete_rows(sheet_row)
+    ws.delete_rows(record_index + 2)
+
 
 def get_all_transactions(spreadsheet_id):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
@@ -96,6 +128,7 @@ def get_all_transactions(spreadsheet_id):
         result.append(dict(zip(headers, padded)))
     return result
 
+
 def get_all_clients(spreadsheet_id):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
     all_values = ws.get_all_values()
@@ -108,6 +141,7 @@ def get_all_clients(spreadsheet_id):
         padded = row + [""] * max(0, len(CLIENT_HEADERS) - len(row))
         result.append(dict(zip(CLIENT_HEADERS, padded)))
     return result
+
 
 def attach_document_to_row(spreadsheet_id, row_num, file_link):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
@@ -122,6 +156,7 @@ def attach_document_to_row(spreadsheet_id, row_num, file_link):
     cell = ws.cell(sheet_row, 8).value or ""
     new_val = (cell + "\n" + file_link).strip() if cell else file_link
     ws.update_cell(sheet_row, 8, new_val)
+
 
 def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
@@ -138,6 +173,7 @@ def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
         sheet_row = int(row_num) + 1
     ws.update_cell(sheet_row, 10, audio_link)
 
+
 def log_action(spreadsheet_id, user_id, username, action, details=""):
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_LOGS)
@@ -148,10 +184,12 @@ def log_action(spreadsheet_id, user_id, username, action, details=""):
     except Exception:
         pass
 
+
 def search_transactions(spreadsheet_id, query):
     records = get_all_transactions(spreadsheet_id)
     q = query.lower()
     return [r for r in records if any(q in str(v).lower() for v in r.values())]
+
 
 def search_clients(spreadsheet_id, query):
     records = get_all_clients(spreadsheet_id)
