@@ -22,33 +22,46 @@ CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. н
 
 
 def get_gspread_client():
+    # Всегда читаем напрямую из env — никакого промежуточного файла
+    raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if raw:
+        info = _json.loads(raw)
+        # Восстанавливаем \n в private_key если они были заменены пробелами
+        pk = info.get("private_key", "")
+        if "\\n" in pk:
+            info["private_key"] = pk.replace("\\n", "\n")
+        pk = info.get("private_key", "")
+        print(f"[DEBUG] Using env JSON, client_email={info.get('client_email')}", flush=True)
+        print(f"[DEBUG] private_key length={len(pk)} newlines={pk.count(chr(10))}", flush=True)
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        return gspread.authorize(creds)
+
+    # Fallback: файл на диске (только если env не задан)
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     creds_file = os.path.join(base_dir, "credentials.json")
     if not os.path.exists(creds_file):
         creds_file = "credentials.json"
 
-    print(f"[DEBUG] creds_file={creds_file} exists={os.path.exists(creds_file)}", flush=True)
-
     if os.path.exists(creds_file):
         with open(creds_file) as _f:
-            _d = _json.load(_f)
-        print(f"[DEBUG] client_email={_d.get('client_email')}", flush=True)
-        creds = Credentials.from_service_account_file(creds_file, scopes=SCOPES)
-        return gspread.authorize(creds)
-
-    raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
-    print(f"[DEBUG] env JSON length={len(raw)}", flush=True)
-    if raw:
-        info = _json.loads(raw)
+            info = _json.load(_f)
+        pk = info.get("private_key", "")
+        if "\\n" in pk:
+            info["private_key"] = pk.replace("\\n", "\n")
+        pk = info.get("private_key", "")
+        print(f"[DEBUG] Using file {creds_file}, client_email={info.get('client_email')}", flush=True)
+        print(f"[DEBUG] private_key length={len(pk)} newlines={pk.count(chr(10))}", flush=True)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
         return gspread.authorize(creds)
 
-    raise FileNotFoundError("Нет credentials.json и нет GOOGLE_CREDENTIALS_JSON в env")
+    raise FileNotFoundError(
+        "Нет GOOGLE_CREDENTIALS_JSON в env и нет credentials.json на диске"
+    )
 
 
 def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
     gc = get_gspread_client()
-    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}' len={len(str(spreadsheet_id))}", flush=True)
+    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}'", flush=True)
     sh = gc.open_by_key(spreadsheet_id)
     try:
         ws = sh.worksheet(sheet_name)
