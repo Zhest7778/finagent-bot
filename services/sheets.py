@@ -1,174 +1,82 @@
-import gspread
-import json as _json
 import os
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import json
+import base64
+import logging
+import gspread
+from google.oauth2.service_account import Credentials
 
-from datetime import datetime
+logger = logging.getLogger(__name__)
 
 SCOPES = [
-    "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
 
 SHEET_TRANSACTIONS = "Транзакции"
-SHEET_CLIENTS = "Контрагенты"
-SHEET_TEMPLATES_META = "_meta"
-SHEET_LOGS = "_logs"
-DEFAULT_HEADERS = ["№", "Дата", "Сумма", "Валюта", "Комментарий", "Откуда", "Куда", "Документ", "Проект"]
-CLIENT_HEADERS = ["Алиас", "Название компании", "Рег. номер", "VAT", "Адрес", "Руководитель", "Контакты", "Страна", "ЕС"]
+SHEET_BUDGETS = "Бюджеты"
+DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Категория", "Описание", "Пользователь"]
 
 
-def get_gspread_client():
-    raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
-    if raw:
-        info = _json.loads(raw)
-        print(f"[DEBUG] client_email={info.get('client_email')}", flush=True)
-        return gspread.service_account_from_dict(info, scopes=SCOPES)
+def get_gspread_client() -> gspread.Client:
+    b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+    if b64:
+        creds_json = base64.b64decode(b64).decode("utf-8")
+        creds_data = json.loads(creds_json)
+        logger.info("DEBUG Using GOOGLE_CREDENTIALS_B64")
+    else:
+        # fallback на старую переменную
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+        creds_data = json.loads(creds_json)
+        logger.info("DEBUG Using GOOGLE_CREDENTIALS_JSON (fallback)")
 
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for path in [os.path.join(base_dir, "credentials.json"), "credentials.json"]:
-        if os.path.exists(path):
-            print(f"[DEBUG] Using file {path}", flush=True)
-            return gspread.service_account(filename=path, scopes=SCOPES)
+    pk = creds_data.get("private_key", "")
+    logger.info(f"DEBUG client_email: {creds_data.get('client_email')}")
+    logger.info(f"DEBUG private_key length={len(pk)} newlines={pk.count(chr(10))}")
 
-    raise FileNotFoundError("Нет GOOGLE_CREDENTIALS_JSON в env и нет credentials.json на диске")
+    creds = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
+    return gspread.authorize(creds)
 
 
-def get_or_create_sheet(spreadsheet_id, sheet_name, headers=None):
+def get_or_create_sheet(spreadsheet_id: str, sheet_name: str, headers: list) -> gspread.Worksheet:
     gc = get_gspread_client()
-    print(f"[DEBUG] opening spreadsheet: '{spreadsheet_id}'", flush=True)
+    logger.info(f"DEBUG opening spreadsheet {spreadsheet_id}")
     sh = gc.open_by_key(spreadsheet_id)
     try:
-        ws = sh.worksheet(sheet_name)
-    except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=sheet_name, rows=1000, cols=20)
-        if headers:
-            ws.append_row(headers)
-    return ws
+        worksheet = sh.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = sh.add_worksheet(title=sheet_name, rows=1000, cols=len(headers))
+        worksheet.append_row(headers)
+        logger.info(f"Created sheet: {sheet_name}")
+    return worksheet
 
 
-def init_spreadsheet(spreadsheet_id):
+def init_spreadsheet(spreadsheet_id: str):
     get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    get_or_create_sheet(spreadsheet_id, SHEET_TEMPLATES_META, ["Шаблон", "Последний номер"])
-    get_or_create_sheet(spreadsheet_id, SHEET_LOGS, ["Время", "User ID", "Username", "Действие", "Детали"])
+    get_or_create_sheet(spreadsheet_id, SHEET_BUDGETS, ["Категория", "Лимит", "Период"])
+    logger.info("Spreadsheet initialized successfully")
 
 
-def add_transaction(spreadsheet_id, data):
+def append_transaction(spreadsheet_id: str, row: list):
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    all_rows = ws.get_all_values()
-    next_num = len(all_rows)
-    row = [
-        next_num,
-        data.get("date", datetime.now().strftime("%d.%m.%Y")),
-        data.get("amount", ""),
-        data.get("currency", "EUR"),
-        data.get("comment", ""),
-        data.get("from_party", ""),
-        data.get("to_party", ""),
-        data.get("document", ""),
-        data.get("project", ""),
-    ]
-    ws.append_row(row)
-    return next_num
+    ws.append_row(row, value_input_option="USER_ENTERED")
 
 
-def add_client(spreadsheet_id, data):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    ws.append_row([
-        data.get("alias", ""), data.get("company_name", ""),
-        data.get("reg_number", ""), data.get("vat", ""),
-        data.get("address", ""), data.get("director", ""),
-        data.get("contacts", ""), data.get("country", ""),
-        data.get("is_eu", "Нет")
-    ])
-
-
-def delete_client(spreadsheet_id, record_index):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    ws.delete_rows(record_index + 2)
-
-
-def get_all_transactions(spreadsheet_id):
+def get_all_transactions(spreadsheet_id: str) -> list:
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    all_values = ws.get_all_values()
-    if not all_values or len(all_values) < 2:
-        return []
-    headers = all_values[0]
-    result = []
-    for row in all_values[1:]:
-        if not any(row) or row == headers:
-            continue
-        padded = row + [""] * (len(headers) - len(row))
-        result.append(dict(zip(headers, padded)))
-    return result
+    records = ws.get_all_records()
+    return records
 
 
-def get_all_clients(spreadsheet_id):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-    all_values = ws.get_all_values()
-    if not all_values:
-        return []
-    result = []
-    for row in all_values:
-        if not any(row) or row == CLIENT_HEADERS:
-            continue
-        padded = row + [""] * max(0, len(CLIENT_HEADERS) - len(row))
-        result.append(dict(zip(CLIENT_HEADERS, padded)))
-    return result
+def get_budgets(spreadsheet_id: str) -> list:
+    ws = get_or_create_sheet(spreadsheet_id, SHEET_BUDGETS, ["Категория", "Лимит", "Период"])
+    return ws.get_all_records()
 
 
-def attach_document_to_row(spreadsheet_id, row_num, file_link):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    all_rows = ws.get_all_values()
-    sheet_row = None
-    for i, row in enumerate(all_rows):
-        if str(row[0]) == str(row_num):
-            sheet_row = i + 1
-            break
-    if sheet_row is None:
-        sheet_row = int(row_num) + 1
-    cell = ws.cell(sheet_row, 8).value or ""
-    new_val = (cell + "\n" + file_link).strip() if cell else file_link
-    ws.update_cell(sheet_row, 8, new_val)
-
-
-def attach_audio_to_row(spreadsheet_id, row_num, audio_link):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    headers = ws.row_values(1)
-    if len(headers) < 10:
-        ws.update_cell(1, 10, "Аудио")
-    all_rows = ws.get_all_values()
-    sheet_row = None
-    for i, row in enumerate(all_rows):
-        if str(row[0]) == str(row_num):
-            sheet_row = i + 1
-            break
-    if sheet_row is None:
-        sheet_row = int(row_num) + 1
-    ws.update_cell(sheet_row, 10, audio_link)
-
-
-def log_action(spreadsheet_id, user_id, username, action, details=""):
-    try:
-        ws = get_or_create_sheet(spreadsheet_id, SHEET_LOGS)
-        ws.append_row([
-            datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-            str(user_id), username, action, details
-        ])
-    except Exception:
-        pass
-
-
-def search_transactions(spreadsheet_id, query):
-    records = get_all_transactions(spreadsheet_id)
-    q = query.lower()
-    return [r for r in records if any(q in str(v).lower() for v in r.values())]
-
-
-def search_clients(spreadsheet_id, query):
-    records = get_all_clients(spreadsheet_id)
-    q = query.lower()
-    return [r for r in records if any(q in str(v).lower() for v in r.values())]
+def set_budget(spreadsheet_id: str, category: str, limit: float, period: str = "месяц"):
+    ws = get_or_create_sheet(spreadsheet_id, SHEET_BUDGETS, ["Категория", "Лимит", "Период"])
+    records = ws.get_all_records()
+    for i, rec in enumerate(records, start=2):
+        if rec.get("Категория") == category:
+            ws.update(f"A{i}:C{i}", [[category, limit, period]])
+            return
+    ws.append_row([category, limit, period])
