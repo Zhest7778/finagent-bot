@@ -1,43 +1,28 @@
 import os
 import logging
-import os, json, base64
+import json
 
-raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-data = json.loads(raw)
-pk = data["private_key"]
-
-# Показываем первые символы ключа
-print(f"[KEY] repr первых 60 символов: {repr(pk[:60])}")
-print(f"[KEY] repr последних 40 символов: {repr(pk[-40:])}")
-print(f"[KEY] реальные переносы строк (chr 10): {pk.count(chr(10))}")
-print(f"[KEY] буквальные \\n: {pk.count(chr(92)+'n')}")
-
-raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-data = json.loads(raw)
-pk = data["private_key"]
-
-print(f"[KEY DEBUG] first 50 chars: {repr(pk[:50])}")
-print(f"[KEY DEBUG] has real newlines: {chr(10) in pk}")
-print(f"[KEY DEBUG] has literal \\n: {'\\\\n' in pk}")
-print(f"[KEY DEBUG] starts correctly: {pk.startswith('-----BEGIN PRIVATE KEY-----')}")
-
-
-_raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
-print(f"[DEBUG] GOOGLE_CREDENTIALS_JSON length: {len(_raw)}")
-if _raw:
-    try:
-        _parsed = json.loads(_raw)
-        print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email', 'NOT FOUND')}")
-        print(f"[DEBUG] project_id: {_parsed.get('project_id', 'NOT FOUND')}")
-    except Exception as e:
-        print(f"[DEBUG] JSON PARSE ERROR: {e}")
-else:
-    print("[DEBUG] GOOGLE_CREDENTIALS_JSON is EMPTY")
 from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 SHEET_ID = os.environ.get("SPREADSHEET_ID")
+
+# --- Диагностика credentials при старте ---
+_raw = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+print(f"[DEBUG] GOOGLE_CREDENTIALS_JSON length: {len(_raw)}", flush=True)
+if _raw:
+    try:
+        _parsed = json.loads(_raw)
+        print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email', 'NOT FOUND')}", flush=True)
+        print(f"[DEBUG] project_id: {_parsed.get('project_id', 'NOT FOUND')}", flush=True)
+        _pk = _parsed.get("private_key", "")
+        print(f"[DEBUG] private_key length={len(_pk)} newlines={_pk.count(chr(10))}", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] JSON PARSE ERROR: {e}", flush=True)
+else:
+    print("[DEBUG] GOOGLE_CREDENTIALS_JSON is EMPTY", flush=True)
+# ------------------------------------------
 
 from telegram import Update
 from telegram.ext import (
@@ -54,12 +39,14 @@ from services.sheets import init_spreadsheet
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
+
 async def post_init(application):
     if SPREADSHEET_ID:
         application.bot_data["spreadsheet_id"] = SPREADSHEET_ID.strip()
-        print(f"✅ Таблица подключена: {SPREADSHEET_ID}")
+        print(f"✅ Таблица подключена: {SPREADSHEET_ID}", flush=True)
     else:
-        print("⚠️  SPREADSHEET_ID не задан в .env — используйте /settable")
+        print("⚠️  SPREADSHEET_ID не задан в .env — используйте /settable", flush=True)
+
 
 async def set_table(update: Update, context):
     if not context.args:
@@ -72,6 +59,7 @@ async def set_table(update: Update, context):
     context.user_data["spreadsheet_id"] = sheet_id
     context.bot_data["spreadsheet_id"] = sheet_id
     await update.message.reply_text(f"✅ Таблица подключена: `{sheet_id}`", parse_mode="Markdown")
+
 
 async def init_sheet(update: Update, context):
     sheet_id = context.user_data.get("spreadsheet_id") or context.bot_data.get("spreadsheet_id")
@@ -88,12 +76,14 @@ async def init_sheet(update: Update, context):
         print(f"[ERROR] init_sheet: {tb}", flush=True)
         await msg.edit_text(f"❌ Ошибка:\n```{str(e)[:300]}```", parse_mode="Markdown")
 
+
 def _sync_spreadsheet_id(context):
     """Синхронизирует spreadsheet_id из всех источников в user_data."""
     if not context.user_data.get("spreadsheet_id"):
         sid = context.bot_data.get("spreadsheet_id") or SPREADSHEET_ID
         if sid:
             context.user_data["spreadsheet_id"] = sid
+
 
 async def handle_text(update: Update, context):
     _sync_spreadsheet_id(context)
@@ -124,9 +114,11 @@ async def handle_text(update: Update, context):
         else:
             await process_text_command(update, context, text)
 
+
 async def handle_voice_wrapper(update: Update, context):
     _sync_spreadsheet_id(context)
     await handle_voice(update, context)
+
 
 def main():
     app = (
@@ -145,8 +137,9 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_incoming_file))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    print("🚀 FinAgent Bot запущен!")
+    print("🚀 FinAgent Bot запущен!", flush=True)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == "__main__":
     main()
