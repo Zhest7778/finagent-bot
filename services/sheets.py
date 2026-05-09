@@ -190,7 +190,32 @@ def get_all_clients(spreadsheet_id: str) -> list:
     except Exception as e:
         logger.error(f"get_all_clients error: {e}")
         return []
-
+def delete_client(spreadsheet_id: str, client_name: str) -> bool:
+    try:
+        service = get_sheets_service()
+        result = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range="Клиенты!A:A"
+        ).execute()
+        values = result.get("values", [])
+        for i, row in enumerate(values):
+            if row and row[0] == client_name:
+                body = {"requests": [{"deleteDimension": {
+                    "range": {
+                        "sheetId": 0,
+                        "dimension": "ROWS",
+                        "startIndex": i,
+                        "endIndex": i + 1
+                    }
+                }}]}
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id, body=body
+                ).execute()
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"delete_client error: {e}")
+        return False
 
 # ─── Лог ──────────────────────────────────────────────────────────────────────
 
