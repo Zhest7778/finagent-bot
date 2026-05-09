@@ -91,12 +91,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             num = add_transaction(spreadsheet_id, data)
-            log_action(spreadsheet_id, user.id, user.username or "",
-                      "add_transaction",
-                      f"#{num} {data.get('amount')} {data.get('currency')} {str(data.get('comment',''))[:30]}")
+            log_action(
+                spreadsheet_id,
+                user.id,
+                f"add_transaction: #{num} {data.get('amount')} {data.get('currency')} {str(data.get('comment', ''))[:30]}"
+            )
             context.user_data.pop("pending_transaction", None)
 
-            # Аудио через file_id — без Google Drive
             file_id = context.user_data.pop("pending_audio_file_id", None)
             if file_id:
                 from handlers.documents import save_voice_for_transaction
@@ -117,8 +118,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         try:
             add_client(spreadsheet_id, data)
-            log_action(spreadsheet_id, user.id, user.username or "",
-                      "add_client", data.get("company_name", ""))
+            log_action(
+                spreadsheet_id,
+                user.id,
+                f"add_client: {data.get('company_name', '')}"
+            )
             await query.edit_message_text(
                 f"✅ *Контрагент сохранён!*\n🏢 {data.get('company_name','—')}\n🔑 Алиас: {data.get('alias','—')}",
                 parse_mode="Markdown"

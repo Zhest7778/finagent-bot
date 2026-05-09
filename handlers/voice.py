@@ -20,7 +20,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tg_file = await context.bot.get_file(voice.file_id)
         await tg_file.download_to_drive(tmp_path)
 
-        # Сохраняем file_id — не зависит от локального диска и не требует Drive
         context.user_data["pending_audio_file_id"] = voice.file_id
 
         await msg.edit_text("🤖 Обрабатываю...")
@@ -46,6 +45,30 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if text is None:
         text = update.message.text
     spreadsheet_id = context.user_data.get("spreadsheet_id")
+
+    # ── Ручной ввод контрагента ──────────────────────────────────────
+    if context.user_data.get("manual_client_mode"):
+        context.user_data.pop("manual_client_mode", None)
+        data = parse_client(text)
+        if "error" in data:
+            await update.message.reply_text("❌ Не удалось разобрать данные компании. Попробуйте ещё раз.")
+            return
+        context.user_data["pending_client"] = data
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Сохранить", callback_data="save_client"),
+            InlineKeyboardButton("❌ Отменить", callback_data="cancel")
+        ]])
+        await update.message.reply_text(
+            f"🏢 *Новый контрагент:*\n"
+            f"• Алиас: {data.get('alias','—')}\n"
+            f"• Название: {data.get('company_name','—')}\n"
+            f"• VAT: {data.get('vat','—')}\n"
+            f"• Страна: {data.get('country','—')}\n\nСохранить?",
+            parse_mode="Markdown", reply_markup=keyboard
+        )
+        return
+    # ────────────────────────────────────────────────────────────────
+
     lower = text.lower()
 
     is_transaction = any(w in lower for w in [
@@ -66,7 +89,6 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if "error" in data:
             await update.message.reply_text("❌ Не удалось разобрать команду. Напишите подробнее.")
             return
-        # Gemini извлекает название проекта автоматически
         data["project"] = extract_project(text)
         context.user_data["pending_transaction"] = data
         await confirm_transaction_keyboard(update, context, data)
