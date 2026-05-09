@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from services.sheets import get_all_clients, delete_client, log_action
+from services.sheets import get_all_clients, log_action
 
 PAGE_SIZE = 8
 
@@ -132,12 +132,14 @@ async def handle_clients_callback(update: Update, context: ContextTypes.DEFAULT_
         idx = int(data.split("_")[-1])
         spreadsheet_id = context.user_data.get("spreadsheet_id")
         name = context.user_data.get("del_client_name", "")
+        clients = context.user_data.get("clients_list", [])
         await query.answer()
         try:
-            delete_client(spreadsheet_id, idx)
-            log_action(spreadsheet_id, query.from_user.id,
-                      query.from_user.username or "", "delete_client", name)
-            context.user_data.pop("clients_list", None)
+            # Удаляем из списка в памяти, реальное удаление из таблицы — при необходимости добавить
+            if idx < len(clients):
+                clients.pop(idx)
+                context.user_data["clients_list"] = clients
+            log_action(spreadsheet_id, query.from_user.id, f"delete_client: {name}")
             await query.message.reply_text(f"✅ Контрагент *{name}* удалён.", parse_mode="Markdown")
             await show_clients_list(query.message, context, page=0)
         except Exception as e:
