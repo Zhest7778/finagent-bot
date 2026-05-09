@@ -131,7 +131,39 @@ def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> b
     except Exception as e:
         logger.error(f"attach_audio_to_row error: {e}")
         return False
-
+def delete_client(spreadsheet_id: str, client_name: str) -> bool:
+    """Удаляет строку клиента по имени из листа Клиенты."""
+    try:
+        service = get_sheets_service()
+        result = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range="Клиенты!A:A"
+        ).execute()
+        values = result.get("values", [])
+        for i, row in enumerate(values):
+            if row and row[0] == client_name:
+                # Удаляем строку (i+1, т.к. Sheets 1-based)
+                body = {
+                    "requests": [{
+                        "deleteDimension": {
+                            "range": {
+                                "sheetId": 0,  # или нужный sheetId
+                                "dimension": "ROWS",
+                                "startIndex": i,
+                                "endIndex": i + 1
+                            }
+                        }
+                    }]
+                }
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body=body
+                ).execute()
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"delete_client error: {e}")
+        return False
 
 # ─── Клиенты ──────────────────────────────────────────────────────────────────
 
