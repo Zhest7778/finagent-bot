@@ -20,8 +20,8 @@ async def confirm_transaction_keyboard(update: Update, context: ContextTypes.DEF
         text += f"\n\n⚠️ _Не указано: {', '.join(fields_ru.get(f,f) for f in missing)}_"
 
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Записать", callback_data="save_transaction"),
-        InlineKeyboardButton("❌ Отменить", callback_data="cancel")
+        InlineKeyboardButton("✅ Записать.", callback_data="save_transaction"),
+        InlineKeyboardButton("❌ Отменить.", callback_data="cancel")
     ]])
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
