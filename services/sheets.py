@@ -18,8 +18,8 @@ SHEET_BUDGETS = "Бюджеты"
 SHEET_CLIENTS = "Клиенты"
 SHEET_LOG = "Лог"
 
-DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Категория", "Описание", "Пользователь", "Документ", "Аудио"]
-CLIENT_HEADERS = ["Имя", "User_ID"]
+DEFAULT_HEADERS = ["Дата", "Тип", "Сумма", "Валюта", "От", "Кому", "Комментарий", "Проект", "Пользователь", "Документ", "Аудио"]
+CLIENT_HEADERS = ["Алиас", "Название компании", "Рег.номер", "VAT", "Адрес", "Руководитель", "Контакты", "Страна", "ЕС"]
 LOG_HEADERS = ["Дата", "User_ID", "Действие", "Детали"]
 
 b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
@@ -69,28 +69,31 @@ def init_spreadsheet(spreadsheet_id: str):
 
 # ─── Транзакции ───────────────────────────────────────────────────────────────
 
-def append_transaction(spreadsheet_id: str, row: list):
-    ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    ws.append_row(row, value_input_option="USER_ENTERED")
-
-
-def add_transaction(spreadsheet_id: str, data: dict) -> bool:
+def add_transaction(spreadsheet_id: str, data: dict) -> int:
+    """Добавляет транзакцию и возвращает номер строки (1-based, включая заголовок)."""
     try:
+        ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
         row = [
-            data.get("date", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+            data.get("date", datetime.utcnow().strftime("%d.%m.%Y")),
             data.get("type", ""),
             data.get("amount", ""),
-            data.get("category", ""),
-            data.get("description", ""),
+            data.get("currency", "EUR"),
+            data.get("from_party", ""),
+            data.get("to_party", ""),
+            data.get("comment", ""),
+            data.get("project", ""),
             str(data.get("user_id", "")),
             data.get("document", ""),
             data.get("audio", ""),
         ]
-        append_transaction(spreadsheet_id, row)
-        return True
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        # Возвращаем номер добавленной строки
+        row_num = len(ws.col_values(1))
+        logger.info(f"add_transaction: row={row_num}")
+        return row_num
     except Exception as e:
         logger.error(f"add_transaction error: {e}")
-        return False
+        return 0
 
 
 def get_all_transactions(spreadsheet_id: str) -> list:
@@ -107,7 +110,8 @@ def _find_last_row(spreadsheet_id: str) -> int:
 def attach_document_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-        ws.update_cell(row_index, 7, file_url)
+        # Колонка "Документ" — 10-я
+        ws.update_cell(row_index, 10, file_url)
         logger.info(f"attach_document_to_row: row={row_index} url={file_url}")
         return True
     except Exception as e:
@@ -118,7 +122,8 @@ def attach_document_to_row(spreadsheet_id: str, row_index: int, file_url: str) -
 def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-        ws.update_cell(row_index, 8, file_url)
+        # Колонка "Аудио" — 11-я
+        ws.update_cell(row_index, 11, file_url)
         logger.info(f"attach_audio_to_row: row={row_index} url={file_url}")
         return True
     except Exception as e:
@@ -128,13 +133,26 @@ def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> b
 
 # ─── Клиенты ──────────────────────────────────────────────────────────────────
 
-def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
+def add_client(spreadsheet_id: str, data: dict) -> bool:
+    """Добавляет контрагента из словаря в лист Клиенты."""
     try:
-        existing = get_all_clients(spreadsheet_id)
-        if name in existing:
-            return True
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-        ws.append_row([name, str(user_id or "")], value_input_option="USER_ENTERED")
+        existing = ws.col_values(2)  # Колонка "Название компании"
+        name = data.get("company_name", "")
+        if name and name in existing:
+            return True
+        row = [
+            data.get("alias", ""),
+            data.get("company_name", ""),
+            data.get("reg_number", ""),
+            data.get("vat", ""),
+            data.get("address", ""),
+            data.get("director", ""),
+            data.get("contacts", ""),
+            data.get("country", ""),
+            data.get("is_eu", ""),
+        ]
+        ws.append_row(row, value_input_option="USER_ENTERED")
         return True
     except Exception as e:
         logger.error(f"add_client error: {e}")
@@ -142,10 +160,10 @@ def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
 
 
 def get_all_clients(spreadsheet_id: str) -> list:
+    """Возвращает список словарей контрагентов из листа Клиенты."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-        records = ws.get_all_records()
-        return sorted([r.get("Имя", "") for r in records if r.get("Имя")])
+        return ws.get_all_records()
     except Exception as e:
         logger.error(f"get_all_clients error: {e}")
         return []
@@ -155,7 +173,6 @@ def delete_client(spreadsheet_id: str, client_idx: int) -> bool:
     """Удаляет строку клиента по индексу (0-based) из листа Клиенты."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
-        # +2: +1 за 1-based индексацию, +1 за строку заголовка
         ws.delete_rows(client_idx + 2)
         return True
     except Exception as e:
