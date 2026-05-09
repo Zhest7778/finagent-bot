@@ -23,11 +23,9 @@ CLIENT_HEADERS = ["Имя", "User_ID"]
 LOG_HEADERS = ["Дата", "User_ID", "Действие", "Детали"]
 
 b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
-b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
 print(f"[DEBUG] B64 length: {len(b64)}")
 print(f"[DEBUG] B64 first 20 chars: {repr(b64[:20])}")
 print(f"[DEBUG] B64 has newlines: {chr(10) in b64}")
-print(f"[DEBUG] B64 length: {len(b64)}")
 
 
 def get_gspread_client() -> gspread.Client:
@@ -72,13 +70,11 @@ def init_spreadsheet(spreadsheet_id: str):
 # ─── Транзакции ───────────────────────────────────────────────────────────────
 
 def append_transaction(spreadsheet_id: str, row: list):
-    """Добавляет строку-список в лист Транзакции."""
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
     ws.append_row(row, value_input_option="USER_ENTERED")
 
 
 def add_transaction(spreadsheet_id: str, data: dict) -> bool:
-    """Добавляет транзакцию из словаря в лист Транзакции."""
     try:
         row = [
             data.get("date", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
@@ -103,14 +99,12 @@ def get_all_transactions(spreadsheet_id: str) -> list:
 
 
 def _find_last_row(spreadsheet_id: str) -> int:
-    """Возвращает номер последней заполненной строки в листе Транзакции (1-based)."""
     ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
-    values = ws.col_values(1)  # колонка Дата
-    return len(values)  # включая заголовок
+    values = ws.col_values(1)
+    return len(values)
 
 
 def attach_document_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
-    """Прикрепляет ссылку на документ к строке row_index (1-based) в колонке 'Документ' (7)."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
         ws.update_cell(row_index, 7, file_url)
@@ -122,7 +116,6 @@ def attach_document_to_row(spreadsheet_id: str, row_index: int, file_url: str) -
 
 
 def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> bool:
-    """Прикрепляет ссылку на аудио к строке row_index (1-based) в колонке 'Аудио' (8)."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_TRANSACTIONS, DEFAULT_HEADERS)
         ws.update_cell(row_index, 8, file_url)
@@ -131,44 +124,11 @@ def attach_audio_to_row(spreadsheet_id: str, row_index: int, file_url: str) -> b
     except Exception as e:
         logger.error(f"attach_audio_to_row error: {e}")
         return False
-def delete_client(spreadsheet_id: str, client_name: str) -> bool:
-    """Удаляет строку клиента по имени из листа Клиенты."""
-    try:
-        service = get_sheets_service()
-        result = service.spreadsheets().values().get(
-            spreadsheetId=spreadsheet_id,
-            range="Клиенты!A:A"
-        ).execute()
-        values = result.get("values", [])
-        for i, row in enumerate(values):
-            if row and row[0] == client_name:
-                # Удаляем строку (i+1, т.к. Sheets 1-based)
-                body = {
-                    "requests": [{
-                        "deleteDimension": {
-                            "range": {
-                                "sheetId": 0,  # или нужный sheetId
-                                "dimension": "ROWS",
-                                "startIndex": i,
-                                "endIndex": i + 1
-                            }
-                        }
-                    }]
-                }
-                service.spreadsheets().batchUpdate(
-                    spreadsheetId=spreadsheet_id,
-                    body=body
-                ).execute()
-                return True
-        return False
-    except Exception as e:
-        logger.error(f"delete_client error: {e}")
-        return False
+
 
 # ─── Клиенты ──────────────────────────────────────────────────────────────────
 
 def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
-    """Добавляет клиента в лист Клиенты без дублей."""
     try:
         existing = get_all_clients(spreadsheet_id)
         if name in existing:
@@ -182,7 +142,6 @@ def add_client(spreadsheet_id: str, name: str, user_id: int = None) -> bool:
 
 
 def get_all_clients(spreadsheet_id: str) -> list:
-    """Возвращает список имён клиентов из листа Клиенты."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
         records = ws.get_all_records()
@@ -190,37 +149,23 @@ def get_all_clients(spreadsheet_id: str) -> list:
     except Exception as e:
         logger.error(f"get_all_clients error: {e}")
         return []
-def delete_client(spreadsheet_id: str, client_name: str) -> bool:
+
+
+def delete_client(spreadsheet_id: str, client_idx: int) -> bool:
+    """Удаляет строку клиента по индексу (0-based) из листа Клиенты."""
     try:
-        service = get_sheets_service()
-        result = service.spreadsheets().values().get(
-            spreadsheetId=spreadsheet_id,
-            range="Клиенты!A:A"
-        ).execute()
-        values = result.get("values", [])
-        for i, row in enumerate(values):
-            if row and row[0] == client_name:
-                body = {"requests": [{"deleteDimension": {
-                    "range": {
-                        "sheetId": 0,
-                        "dimension": "ROWS",
-                        "startIndex": i,
-                        "endIndex": i + 1
-                    }
-                }}]}
-                service.spreadsheets().batchUpdate(
-                    spreadsheetId=spreadsheet_id, body=body
-                ).execute()
-                return True
-        return False
+        ws = get_or_create_sheet(spreadsheet_id, SHEET_CLIENTS, CLIENT_HEADERS)
+        # +2: +1 за 1-based индексацию, +1 за строку заголовка
+        ws.delete_rows(client_idx + 2)
+        return True
     except Exception as e:
         logger.error(f"delete_client error: {e}")
         return False
 
+
 # ─── Лог ──────────────────────────────────────────────────────────────────────
 
 def log_action(spreadsheet_id: str, user_id: int, action: str, detail: str = "") -> None:
-    """Логирует действие пользователя в лист Лог."""
     try:
         ws = get_or_create_sheet(spreadsheet_id, SHEET_LOG, LOG_HEADERS)
         ws.append_row(
