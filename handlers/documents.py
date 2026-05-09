@@ -32,8 +32,8 @@ async def save_voice_for_transaction(context: ContextTypes.DEFAULT_TYPE, file_id
         if not spreadsheet_id:
             return
         audio_link = f"tg://file_id={file_id}"
-        attach_audio_to_row(spreadsheet_id, transaction_num, audio_link)
-        log_action(spreadsheet_id, user_id, "", "save_audio", f"#{transaction_num} → {file_id}")
+        attach_audio_to_row(spreadsheet_id, int(transaction_num), audio_link)
+        log_action(spreadsheet_id, user_id, f"save_audio: #{transaction_num} → {file_id}")
     except Exception:
         pass
 
@@ -124,9 +124,8 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         if spreadsheet_id and transaction_num:
-            attach_document_to_row(spreadsheet_id, transaction_num, file_link)
-            log_action(spreadsheet_id, user.id, user.username or "",
-                       "attach_document", f"#{transaction_num} → {original_name}")
+            attach_document_to_row(spreadsheet_id, int(transaction_num), file_link)
+            log_action(spreadsheet_id, user.id, f"attach_document: #{transaction_num} → {original_name}")
 
         await msg.edit_text(
             f"✅ *Документ прикреплён!*\n\n"
