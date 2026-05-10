@@ -26,7 +26,6 @@ ALL_BUTTONS = [
 
 
 def _get_spreadsheet_id(context) -> str:
-    """Автоматически подтягивает spreadsheet_id из всех источников."""
     sid = context.user_data.get("spreadsheet_id")
     if not sid:
         sid = context.bot_data.get("spreadsheet_id") or DEFAULT_SID
@@ -84,6 +83,7 @@ async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def show_table(update, context, spreadsheet_id):
+    import html as html_module
     if not spreadsheet_id:
         await update.message.reply_text("⚠️ Таблица не подключена.\n/settable <ID>")
         return
@@ -92,21 +92,23 @@ async def show_table(update, context, spreadsheet_id):
         if not records:
             await update.message.reply_text("📭 Таблица пуста.")
             return
-        lines = ["📊 *Последние записи:*\n"]
+        lines = ["<b>📊 Последние записи:</b>\n"]
         for r in reversed(records[-10:]):
             doc_icon = "📎" if r.get("Документ") else ""
-            project = f" | 🗂 {r.get('Проект','')}" if r.get("Проект") else ""
+            project = f" | 🗂 {html_module.escape(str(r.get('Проект','')))}" if r.get("Проект") else ""
             lines.append(
-                f"#{r.get('№','')} | {r.get('Дата','')} | "
-                f"{r.get('Сумма','')} {r.get('Валюта','EUR')} {doc_icon}{project}\n"
-                f"   _{str(r.get('Комментарий',''))[:35]}_"
+                f"#{html_module.escape(str(r.get('№','')))} | "
+                f"{html_module.escape(str(r.get('Дата','')))} | "
+                f"{html_module.escape(str(r.get('Сумма','')))} "
+                f"{html_module.escape(str(r.get('Валюта','EUR')))} {doc_icon}{project}\n"
+                f"   <i>{html_module.escape(str(r.get('Комментарий',''))[:35])}</i>"
             )
-        lines.append(f"\n_Всего: {len(records)} записей_")
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        lines.append(f"\n<i>Всего: {len(records)} записей</i>")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         import traceback
         err = traceback.format_exc()
         await update.message.reply_text(
-            f"❌ Ошибка: {type(e).__name__}: {e}\n\n<pre>{err[-600:]}</pre>",
+            f"❌ Ошибка: {type(e).__name__}: {e}\n\n<pre>{html_module.escape(err[-600:])}</pre>",
             parse_mode="HTML"
         )
