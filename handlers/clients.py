@@ -1,16 +1,14 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-from services.sheets import get_all_clients, log_action
+from services.sheets import get_all_clients, delete_client, log_action
 
 PAGE_SIZE = 8
 
-# Колонки: Алиас(0), Название компании(1), Рег.номер(2), VAT(3), Адрес(4), Руководитель(5), Контакты(6), Страна(7), ЕС(8)
 
 def _client_display(c: dict, num: int) -> str:
     alias   = (c.get("Алиас") or "").strip()
     name    = (c.get("Название компании") or "").strip()
     country = (c.get("Страна") or "").strip()
-
     if alias and name:
         display = f"{alias} — {name}"
     elif alias:
@@ -19,7 +17,6 @@ def _client_display(c: dict, num: int) -> str:
         display = name
     else:
         display = f"#{num}"
-
     if country:
         display += f" ({country})"
     return display
@@ -135,11 +132,20 @@ async def handle_clients_callback(update: Update, context: ContextTypes.DEFAULT_
         clients = context.user_data.get("clients_list", [])
         await query.answer()
         try:
-            # Удаляем из списка в памяти, реальное удаление из таблицы — при необходимости добавить
             if idx < len(clients):
+                client = clients[idx]
+                # Получаем идентификатор для удаления из таблицы
+                alias = client.get("Алиас") or client.get("Название компании") or ""
+                # Реальное удаление из Google Sheets
+                if spreadsheet_id and alias:
+                    deleted = delete_client(spreadsheet_id, alias)
+                    if not deleted:
+                        await query.message.reply_text(f"⚠️ Не удалось найти в таблице: {alias}")
+                # Удаляем из кэша в памяти
                 clients.pop(idx)
                 context.user_data["clients_list"] = clients
-            log_action(spreadsheet_id, query.from_user.id, f"delete_client: {name}")
+            if spreadsheet_id:
+                log_action(spreadsheet_id, query.from_user.id, f"delete_client: {name}")
             await query.message.reply_text(f"✅ Контрагент *{name}* удалён.", parse_mode="Markdown")
             await show_clients_list(query.message, context, page=0)
         except Exception as e:
