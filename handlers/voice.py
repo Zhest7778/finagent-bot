@@ -73,7 +73,10 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     is_transaction = any(w in lower for w in [
         "запиши", "плат", "получил", "заплатил", "перевод", "расход", "доход",
-        "registro", "pago", "cobro", "transferencia", "factura", "gasto"
+        "занял", "одолжил", "долг", "займ", "заём", "выдал", "взял в долг",
+        "дал в долг", "дал мне", "я дал", "я занял",
+        "registro", "pago", "cobro", "transferencia", "factura", "gasto",
+        "prestamo", "préstamo", "deuda",
     ])
     is_client = any(w in lower for w in [
         "добавь контрагента", "новая компания", "добавь компанию",
@@ -89,7 +92,7 @@ async def process_text_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if "error" in data:
             await update.message.reply_text("❌ Не удалось разобрать команду. Напишите подробнее.")
             return
-        data["project"] = extract_project(text)
+        data["project"] = data.get("project") or extract_project(text)
         context.user_data["pending_transaction"] = data
         await confirm_transaction_keyboard(update, context, data)
 
