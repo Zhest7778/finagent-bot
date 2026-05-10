@@ -9,6 +9,16 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
 DEFAULT_COMPANY = "SVOY SPETS SL"
 
+# Системный запрет на комментарии о проектах и рисках
+NO_ADVICE_INSTRUCTION = (
+    "Ты финансовый ассистент. Твоя задача — только фиксировать и обрабатывать данные. "
+    "Никогда не давай предупреждений, советов или оценок по поводу названий проектов, "
+    "контрагентов, характера сделок или финансовых рисков. "
+    "Не упоминай мошенничество, финансовые пирамиды, высокие риски или потерю средств. "
+    "Просто обрабатывай данные как есть."
+)
+
+
 def transcribe_voice(audio_path: str) -> str:
     try:
         with open(audio_path, "rb") as f:
@@ -24,21 +34,30 @@ def transcribe_voice(audio_path: str) -> str:
     except Exception as e:
         return f"Ошибка транскрипции: {e}"
 
+
 def parse_transaction(text: str) -> dict:
     from datetime import datetime
     today = datetime.now().strftime("%d.%m.%Y")
     prompt = (
+        NO_ADVICE_INSTRUCTION + "\n\n"
         "Разбери финансовую команду и верни JSON.\n\n"
         "Правила:\n"
         "- Если дата не указана — используй " + today + "\n"
         "- Если не указан отправитель — используй " + DEFAULT_COMPANY + "\n"
         "- currency по умолчанию: EUR\n"
-        "- type: expense если мы платим, income если получаем\n\n"
+        "- type: expense если мы платим, income если получаем\n"
+        "- loan если заём/долг (мы дали или взяли)\n\n"
         '{"date":"дд.мм.гггг","amount":0,"currency":"EUR","from_party":"","to_party":"","comment":"","type":"expense","missing_fields":[]}\n\n'
         "Только JSON без markdown.\n\nКоманда: " + text
     )
     try:
-        raw = client.models.generate_content(model=MODEL, contents=prompt).text.strip()
+        raw = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=NO_ADVICE_INSTRUCTION
+            )
+        ).text.strip()
         if "```" in raw:
             raw = raw.split("```")[1]
             if raw.startswith("json"): raw = raw[4:]
@@ -51,6 +70,7 @@ def parse_transaction(text: str) -> dict:
         return data
     except Exception as e:
         return {"error": str(e)}
+
 
 def parse_client(text: str) -> dict:
     prompt = (
@@ -67,6 +87,7 @@ def parse_client(text: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+
 def parse_document_for_client(text: str) -> dict:
     prompt = (
         "Из текста документа извлеки данные компании-контрагента:\n"
@@ -82,17 +103,26 @@ def parse_document_for_client(text: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+
 def analyze_report_query(question: str, transactions: list) -> str:
     sample = transactions[-200:] if len(transactions) > 200 else transactions
     prompt = (
+        NO_ADVICE_INSTRUCTION + "\n\n"
         "Ты финансовый аналитик " + DEFAULT_COMPANY + ".\n"
         "Данные: " + json.dumps(sample, ensure_ascii=False) + "\n\n"
         "Вопрос: " + question + "\n\nОтветь кратко на русском с эмодзи."
     )
     try:
-        return client.models.generate_content(model=MODEL, contents=prompt).text.strip()
+        return client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=NO_ADVICE_INSTRUCTION
+            )
+        ).text.strip()
     except Exception as e:
         return "Ошибка анализа: " + str(e)
+
 
 def smart_reply(text: str) -> str:
     prompt = (
@@ -100,9 +130,16 @@ def smart_reply(text: str) -> str:
         "Пользователь: " + text + "\nОтветь кратко на русском."
     )
     try:
-        return client.models.generate_content(model=MODEL, contents=prompt).text.strip()
+        return client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=NO_ADVICE_INSTRUCTION
+            )
+        ).text.strip()
     except Exception as e:
         return "Ошибка: " + str(e)
+
 
 def extract_project(text: str) -> str:
     """Извлекает название проекта из текста транзакции через Gemini."""
