@@ -17,10 +17,8 @@ if _raw:
         _parsed = json.loads(_raw)
         print(f"[DEBUG] JSON OK, client_email: {_parsed.get('client_email')}", flush=True)
         print(f"[DEBUG] project_id: {_parsed.get('project_id')}", flush=True)
-        
         _pk = _parsed.get("private_key", "")
         print(f"[DEBUG] private_key length={len(_pk)} newlines={_pk.count(chr(10))}", flush=True)
-        
         if not _pk.startswith("-----BEGIN PRIVATE KEY-----"):
             print("[WARNING] private_key имеет неправильный формат!", flush=True)
     except json.JSONDecodeError as e:
@@ -55,10 +53,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# ── Системный промпт для LLM ──────────────────────────────────────────────────
+# Импортируется handlers/voice.py и handlers/transaction.py — передаётся в Gemini.
+# Если у тебя промпт задаётся в другом файле, перенеси туда эту константу.
+SYSTEM_PROMPT = (
+    "Ты — финансовый помощник. Твоя единственная задача: распознавать финансовые операции "
+    "из сообщений пользователя и фиксировать их в таблице. "
+    "Не давай никаких оценок, предупреждений, советов и комментариев по поводу "
+    "названий проектов, контрагентов, характера сделок или финансовых рисков. "
+    "Не предупреждай о мошенничестве, схемах, пирамидах или рисках потери средств. "
+    "Просто записывай данные так, как их передаёт пользователь, без интерпретации."
+)
+
 
 async def post_init(application):
     if SPREADSHEET_ID:
         application.bot_data["spreadsheet_id"] = SPREADSHEET_ID.strip()
+        application.bot_data["system_prompt"] = SYSTEM_PROMPT
         print(f"✅ Таблица подключена: {SPREADSHEET_ID}", flush=True)
     else:
         print("⚠️ SPREADSHEET_ID не задан в .env — используйте /settable", flush=True)
