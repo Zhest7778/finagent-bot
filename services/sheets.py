@@ -1,29 +1,21 @@
 import logging
 import gspread
-from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID as DEFAULT_SPREADSHEET_ID
+from config import GOOGLE_CREDENTIALS_FILE, SPREADSHEET_ID as DEFAULT_SPREADSHEET_ID
+from config import SHEET_TRANSACTIONS, SHEET_CLIENTS, DEFAULT_HEADERS, CLIENT_HEADERS
 
 logger = logging.getLogger(__name__)
 
-SHEET_TRANSACTIONS = "Транзакции"
-SHEET_CLIENTS = "Клиенты"
-SHEET_LOG = "Лог"
+SHEET_LOG = "_logs"
 
-TRANSACTION_HEADERS = [
-    "№", "Дата", "Сумма", "Валюта", "От кого", "Кому",
-    "Комментарий", "Тип", "Проект", "Документ", "Аудио"
-]
-CLIENT_HEADERS = [
-    "Алиас", "Название компании", "Рег. номер", "VAT",
-    "Адрес", "Директор", "Контакты", "Страна", "ЕС"
-]
-LOG_HEADERS = ["Дата", "Пользователь", "Действие", "Детали"]
+TRANSACTION_HEADERS = DEFAULT_HEADERS + ["Тип", "Аудио"]
+# CLIENT_HEADERS уже импортирован из config
 
 
 def get_client():
-    return gspread.service_account_from_dict(GOOGLE_CREDENTIALS)
+    return gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
 
 
-def _open(spreadsheet_id: str):
+def _open(spreadsheet_id: str = None):
     return get_client().open_by_key(spreadsheet_id or DEFAULT_SPREADSHEET_ID)
 
 
@@ -35,7 +27,7 @@ def init_spreadsheet(spreadsheet_id: str = None):
     for name, headers in [
         (SHEET_TRANSACTIONS, TRANSACTION_HEADERS),
         (SHEET_CLIENTS, CLIENT_HEADERS),
-        (SHEET_LOG, LOG_HEADERS),
+        (SHEET_LOG, ["Дата", "Пользователь", "Действие", "Детали"]),
     ]:
         if name not in existing:
             ws = sh.add_worksheet(title=name, rows=1000, cols=len(headers))
@@ -65,22 +57,20 @@ def add_transaction(spreadsheet_id: str, data: dict) -> int:
         headers = TRANSACTION_HEADERS
     records = ws.get_all_records(expected_headers=[])
     num = len(records) + 1
-    row = []
     mapping = {
         "№": num,
         "Дата": data.get("date", ""),
         "Сумма": data.get("amount", ""),
         "Валюта": data.get("currency", "EUR"),
-        "От кого": data.get("from_party", ""),
-        "Кому": data.get("to_party", ""),
         "Комментарий": data.get("comment", ""),
-        "Тип": data.get("type", "expense"),
-        "Проект": data.get("project", ""),
+        "Откуда": data.get("from_party", ""),
+        "Куда": data.get("to_party", ""),
         "Документ": "",
+        "Проект": data.get("project", ""),
+        "Тип": data.get("type", "expense"),
         "Аудио": "",
     }
-    for h in headers:
-        row.append(mapping.get(h, ""))
+    row = [mapping.get(h, "") for h in headers]
     ws.append_row(row)
     logger.info(f"add_transaction: #{num}")
     return num
@@ -113,7 +103,7 @@ def add_client(spreadsheet_id: str, data: dict):
         "Рег. номер": data.get("reg_number", ""),
         "VAT": data.get("vat", ""),
         "Адрес": data.get("address", ""),
-        "Директор": data.get("director", ""),
+        "Руководитель": data.get("director", ""),
         "Контакты": data.get("contacts", ""),
         "Страна": data.get("country", ""),
         "ЕС": data.get("is_eu", "Да"),
