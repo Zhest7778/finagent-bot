@@ -138,3 +138,48 @@ def log_action(user_id: int, action: str, details: str = ""):
         action,
         details,
     ])
+
+
+# ── Документы и аудио ─────────────────────────────────────────────────────────
+
+def attach_document_to_row(spreadsheet_id: str, transaction_num: int, file_link: str):
+    """Прикрепляет ссылку на документ к строке транзакции по номеру записи (столбец Документ)."""
+    gc = get_client()
+    sh = gc.open_by_key(spreadsheet_id)
+    ws = sh.worksheet(SHEET_TRANSACTIONS)
+    headers = ws.row_values(1)
+    if "Документ" not in headers:
+        logger.warning("attach_document_to_row: column 'Документ' not found")
+        return
+    doc_col = headers.index("Документ") + 1  # 1-based
+    # Ищем строку по столбцу № (первый столбец)
+    all_vals = ws.col_values(1)  # столбец A = №
+    for i, val in enumerate(all_vals):
+        if str(val) == str(transaction_num):
+            row_num = i + 1
+            existing = ws.cell(row_num, doc_col).value or ""
+            new_val = (existing + " | " + file_link).strip(" | ") if existing else file_link
+            ws.update_cell(row_num, doc_col, new_val)
+            logger.info(f"attach_document_to_row: #{transaction_num} row={row_num}")
+            return
+    logger.warning(f"attach_document_to_row: transaction #{transaction_num} not found")
+
+
+def attach_audio_to_row(spreadsheet_id: str, transaction_num: int, audio_link: str):
+    """Прикрепляет ссылку на аудио к строке транзакции по номеру записи (столбец Аудио)."""
+    gc = get_client()
+    sh = gc.open_by_key(spreadsheet_id)
+    ws = sh.worksheet(SHEET_TRANSACTIONS)
+    headers = ws.row_values(1)
+    if "Аудио" not in headers:
+        logger.warning("attach_audio_to_row: column 'Аудио' not found")
+        return
+    audio_col = headers.index("Аудио") + 1  # 1-based
+    all_vals = ws.col_values(1)
+    for i, val in enumerate(all_vals):
+        if str(val) == str(transaction_num):
+            row_num = i + 1
+            ws.update_cell(row_num, audio_col, audio_link)
+            logger.info(f"attach_audio_to_row: #{transaction_num} row={row_num}")
+            return
+    logger.warning(f"attach_audio_to_row: transaction #{transaction_num} not found")
