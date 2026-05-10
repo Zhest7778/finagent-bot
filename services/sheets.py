@@ -1,185 +1,175 @@
-import os
 import logging
-import json
-import base64
 import gspread
-from google.oauth2.service_account import Credentials
+from config import GOOGLE_CREDENTIALS, SPREADSHEET_ID as DEFAULT_SPREADSHEET_ID
 
 logger = logging.getLogger(__name__)
 
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
-
-# Названия листов (кириллица — как в таблице)
 SHEET_TRANSACTIONS = "Транзакции"
-SHEET_CLIENTS      = "Клиенты"
-SHEET_LOG          = "Лог"
+SHEET_CLIENTS = "Клиенты"
+SHEET_LOG = "Лог"
+
+TRANSACTION_HEADERS = [
+    "№", "Дата", "Сумма", "Валюта", "От кого", "Кому",
+    "Комментарий", "Тип", "Проект", "Документ", "Аудио"
+]
+CLIENT_HEADERS = [
+    "Алиас", "Название компании", "Рег. номер", "VAT",
+    "Адрес", "Директор", "Контакты", "Страна", "ЕС"
+]
+LOG_HEADERS = ["Дата", "Пользователь", "Действие", "Детали"]
 
 
 def get_client():
-    b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
-    if b64:
-        logger.info("DEBUG Using GOOGLE_CREDENTIALS_B64")
-        creds_json = base64.b64decode(b64).decode("utf-8")
-        creds_dict = json.loads(creds_json)
-    else:
-        raw = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-        creds_dict = json.loads(raw)
-
-    logger.info(f"DEBUG client_email: {creds_dict.get('client_email')}")
-    pk = creds_dict.get("private_key", "")
-    logger.info(f"DEBUG private_key length={len(pk)} newlines={pk.count(chr(10))}")
-
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return gspread.authorize(creds)
+    return gspread.service_account_from_dict(GOOGLE_CREDENTIALS)
 
 
-def get_sheet(sheet_name: str):
-    gc = get_client()
-    sh = gc.open_by_key(SPREADSHEET_ID)
-    try:
-        return sh.worksheet(sheet_name)
-    except gspread.WorksheetNotFound:
-        logger.info(f"Created sheet: {sheet_name}")
-        return sh.add_worksheet(title=sheet_name, rows=1000, cols=20)
+def _open(spreadsheet_id: str):
+    return get_client().open_by_key(spreadsheet_id or DEFAULT_SPREADSHEET_ID)
 
 
 def init_spreadsheet(spreadsheet_id: str = None):
-    """Инициализирует все нужные листы в таблице."""
+    sid = spreadsheet_id or DEFAULT_SPREADSHEET_ID
     gc = get_client()
-    sid = spreadsheet_id or SPREADSHEET_ID
     sh = gc.open_by_key(sid)
     existing = [ws.title for ws in sh.worksheets()]
-    for name in [SHEET_TRANSACTIONS, SHEET_CLIENTS, SHEET_LOG]:
+    for name, headers in [
+        (SHEET_TRANSACTIONS, TRANSACTION_HEADERS),
+        (SHEET_CLIENTS, CLIENT_HEADERS),
+        (SHEET_LOG, LOG_HEADERS),
+    ]:
         if name not in existing:
-            sh.add_worksheet(title=name, rows=1000, cols=20)
-            logger.info(f"Spreadsheet initialized: created sheet {name}")
-    logger.info("Spreadsheet initialized successfully")
+            ws = sh.add_worksheet(title=name, rows=1000, cols=len(headers))
+            ws.append_row(headers)
+            logger.info(f"Created sheet: {name}")
+        else:
+            ws = sh.worksheet(name)
+            if not ws.row_values(1):
+                ws.append_row(headers)
 
 
-# ── Транзакции ────────────────────────────────────────────────────────────────
-
-def get_all_transactions():
-    ws = get_sheet(SHEET_TRANSACTIONS)
+def get_all_transactions(spreadsheet_id: str = None) -> list:
     try:
+        ws = _open(spreadsheet_id).worksheet(SHEET_TRANSACTIONS)
         return ws.get_all_records(expected_headers=[])
     except Exception as e:
-        logger.error(f"get_all_transactions error: {e}")
+        logger.error(f"get_all_transactions: {e}")
         return []
 
 
-def add_transaction(row: dict):
-    ws = get_sheet(SHEET_TRANSACTIONS)
+def add_transaction(spreadsheet_id: str, data: dict) -> int:
+    sh = _open(spreadsheet_id)
+    ws = sh.worksheet(SHEET_TRANSACTIONS)
     headers = ws.row_values(1)
     if not headers:
-        headers = ["Дата", "Тип", "Сумма", "Валюта", "От", "Кому", "Комментарий", "Проект", "Пользователь", "Документ", "Аудио"]
-        ws.append_row(headers)
-        logger.info("add_transaction: wrote headers")
-    row_num = len(ws.get_all_values()) + 1
-    values = [row.get(h, "") for h in headers]
-    ws.append_row(values)
-    logger.info(f"add_transaction: row={row_num}")
+        ws.append_row(TRANSACTION_HEADERS)
+        headers = TRANSACTION_HEADERS
+    records = ws.get_all_records(expected_headers=[])
+    num = len(records) + 1
+    row = []
+    mapping = {
+        "№": num,
+        "Дата": data.get("date", ""),
+        "Сумма": data.get("amount", ""),
+        "Валюта": data.get("currency", "EUR"),
+        "От кого": data.get("from_party", ""),
+        "Кому": data.get("to_party", ""),
+        "Комментарий": data.get("comment", ""),
+        "Тип": data.get("type", "expense"),
+        "Проект": data.get("project", ""),
+        "Документ": "",
+        "Аудио": "",
+    }
+    for h in headers:
+        row.append(mapping.get(h, ""))
+    ws.append_row(row)
+    logger.info(f"add_transaction: #{num}")
+    return num
 
 
-def delete_transaction(row_index: int):
-    """Удаляет транзакцию по индексу (0-based, без учёта заголовка)."""
-    ws = get_sheet(SHEET_TRANSACTIONS)
-    ws.delete_rows(row_index + 2)  # +1 header, +1 1-based
+def delete_transaction(spreadsheet_id: str, row_index: int):
+    ws = _open(spreadsheet_id).worksheet(SHEET_TRANSACTIONS)
+    ws.delete_rows(row_index + 2)
 
 
-# ── Клиенты / Контрагенты ─────────────────────────────────────────────────────
-
-def get_all_clients():
-    ws = get_sheet(SHEET_CLIENTS)
+def get_all_clients(spreadsheet_id: str = None) -> list:
     try:
+        ws = _open(spreadsheet_id).worksheet(SHEET_CLIENTS)
         return ws.get_all_records(expected_headers=[])
     except Exception as e:
-        logger.error(f"get_all_clients error: {e}")
+        logger.error(f"get_all_clients: {e}")
         return []
 
 
-def add_client(row: dict):
-    ws = get_sheet(SHEET_CLIENTS)
+def add_client(spreadsheet_id: str, data: dict):
+    sh = _open(spreadsheet_id)
+    ws = sh.worksheet(SHEET_CLIENTS)
     headers = ws.row_values(1)
     if not headers:
-        headers = ["Имя", "User_ID", "Алиас", "Адрес", "Страна", "Активен"]
-        ws.append_row(headers)
-    values = [row.get(h, "") for h in headers]
-    ws.append_row(values)
+        ws.append_row(CLIENT_HEADERS)
+        headers = CLIENT_HEADERS
+    mapping = {
+        "Алиас": data.get("alias", ""),
+        "Название компании": data.get("company_name", ""),
+        "Рег. номер": data.get("reg_number", ""),
+        "VAT": data.get("vat", ""),
+        "Адрес": data.get("address", ""),
+        "Директор": data.get("director", ""),
+        "Контакты": data.get("contacts", ""),
+        "Страна": data.get("country", ""),
+        "ЕС": data.get("is_eu", "Да"),
+    }
+    row = [mapping.get(h, "") for h in headers]
+    ws.append_row(row)
+    logger.info(f"add_client: {data.get('company_name')}")
 
 
-def delete_client(alias: str) -> bool:
-    """Удаляет клиента по алиасу. Возвращает True если найден и удалён."""
-    ws = get_sheet(SHEET_CLIENTS)
-    try:
-        records = ws.get_all_records(expected_headers=[])
-    except Exception:
-        records = []
-    for i, rec in enumerate(records):
-        if str(rec.get("Алиас", "") or rec.get("Имя", "")).lower() == alias.lower():
-            ws.delete_rows(i + 2)  # +1 header, +1 1-based
+def delete_client(spreadsheet_id: str, alias: str) -> bool:
+    ws = _open(spreadsheet_id).worksheet(SHEET_CLIENTS)
+    records = ws.get_all_records(expected_headers=[])
+    for i, r in enumerate(records):
+        if r.get("Алиас") == alias or r.get("Название компании") == alias:
+            ws.delete_rows(i + 2)
             return True
     return False
 
 
-# ── Лог действий ─────────────────────────────────────────────────────────────
+def log_action(spreadsheet_id: str, user_id: int, action: str, details: str = ""):
+    try:
+        from datetime import datetime
+        ws = _open(spreadsheet_id).worksheet(SHEET_LOG)
+        ws.append_row([datetime.now().strftime("%d.%m.%Y %H:%M"), str(user_id), action, details])
+    except Exception as e:
+        logger.warning(f"log_action failed: {e}")
 
-def log_action(user_id: int, action: str, details: str = ""):
-    """Записывает действие пользователя в лист Лог."""
-    ws = get_sheet(SHEET_LOG)
-    from datetime import datetime
-    ws.append_row([
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        str(user_id),
-        action,
-        details,
-    ])
-
-
-# ── Документы и аудио ─────────────────────────────────────────────────────────
 
 def attach_document_to_row(spreadsheet_id: str, transaction_num: int, file_link: str):
-    """Прикрепляет ссылку на документ к строке транзакции по номеру записи (столбец Документ)."""
-    gc = get_client()
-    sh = gc.open_by_key(spreadsheet_id)
-    ws = sh.worksheet(SHEET_TRANSACTIONS)
+    ws = _open(spreadsheet_id).worksheet(SHEET_TRANSACTIONS)
     headers = ws.row_values(1)
     if "Документ" not in headers:
-        logger.warning("attach_document_to_row: column 'Документ' not found")
+        logger.warning("attach_document_to_row: column Документ not found")
         return
-    doc_col = headers.index("Документ") + 1  # 1-based
-    # Ищем строку по столбцу № (первый столбец)
-    all_vals = ws.col_values(1)  # столбец A = №
-    for i, val in enumerate(all_vals):
+    doc_col = headers.index("Документ") + 1
+    all_nums = ws.col_values(1)
+    for i, val in enumerate(all_nums):
         if str(val) == str(transaction_num):
             row_num = i + 1
             existing = ws.cell(row_num, doc_col).value or ""
             new_val = (existing + " | " + file_link).strip(" | ") if existing else file_link
             ws.update_cell(row_num, doc_col, new_val)
-            logger.info(f"attach_document_to_row: #{transaction_num} row={row_num}")
             return
-    logger.warning(f"attach_document_to_row: transaction #{transaction_num} not found")
+    logger.warning(f"attach_document_to_row: #{transaction_num} not found")
 
 
 def attach_audio_to_row(spreadsheet_id: str, transaction_num: int, audio_link: str):
-    """Прикрепляет ссылку на аудио к строке транзакции по номеру записи (столбец Аудио)."""
-    gc = get_client()
-    sh = gc.open_by_key(spreadsheet_id)
-    ws = sh.worksheet(SHEET_TRANSACTIONS)
+    ws = _open(spreadsheet_id).worksheet(SHEET_TRANSACTIONS)
     headers = ws.row_values(1)
     if "Аудио" not in headers:
-        logger.warning("attach_audio_to_row: column 'Аудио' not found")
+        logger.warning("attach_audio_to_row: column Аудио not found")
         return
-    audio_col = headers.index("Аудио") + 1  # 1-based
-    all_vals = ws.col_values(1)
-    for i, val in enumerate(all_vals):
+    audio_col = headers.index("Аудио") + 1
+    all_nums = ws.col_values(1)
+    for i, val in enumerate(all_nums):
         if str(val) == str(transaction_num):
-            row_num = i + 1
-            ws.update_cell(row_num, audio_col, audio_link)
-            logger.info(f"attach_audio_to_row: #{transaction_num} row={row_num}")
+            ws.update_cell(i + 1, audio_col, audio_link)
             return
-    logger.warning(f"attach_audio_to_row: transaction #{transaction_num} not found")
+    logger.warning(f"attach_audio_to_row: #{transaction_num} not found")
