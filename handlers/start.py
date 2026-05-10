@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from config import ADMIN_TELEGRAM_ID
 from handlers.menu import MAIN_MENU, ADMIN_MENU
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     is_admin = user.id == ADMIN_TELEGRAM_ID
@@ -20,6 +21,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=menu
     )
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
