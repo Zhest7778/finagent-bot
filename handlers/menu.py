@@ -1,76 +1,114 @@
-import html as html_module
-import logging
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
+from services.sheets import get_all_transactions
+from config import ADMIN_TELEGRAM_ID, SPREADSHEET_ID as DEFAULT_SID
 
-logger = logging.getLogger(__name__)
+MAIN_MENU = ReplyKeyboardMarkup([
+    [KeyboardButton("🎤 Голосовой ввод"), KeyboardButton("📝 Текстовый ввод")],
+    [KeyboardButton("📊 Таблица"), KeyboardButton("🏢 Контрагенты")],
+    [KeyboardButton("📈 Отчёт"), KeyboardButton("📎 Добавить документ")],
+    [KeyboardButton("🗂 Проекты"), KeyboardButton("ℹ️ Помощь")],
+], resize_keyboard=True)
 
-MAIN_MENU = ReplyKeyboardMarkup(
-    [
-        [KeyboardButton("➕ Новая запись"), KeyboardButton("📊 Таблица")],
-        [KeyboardButton("🏢 Контрагенты"), KeyboardButton("⚙️ Настройки")],
-    ],
-    resize_keyboard=True,
-)
+ADMIN_MENU = ReplyKeyboardMarkup([
+    [KeyboardButton("🎤 Голосовой ввод"), KeyboardButton("📝 Текстовый ввод")],
+    [KeyboardButton("📊 Таблица"), KeyboardButton("🏢 Контрагенты")],
+    [KeyboardButton("📈 Отчёт"), KeyboardButton("📎 Добавить документ")],
+    [KeyboardButton("🗂 Проекты"), KeyboardButton("🔐 Админ-панель")],
+    [KeyboardButton("ℹ️ Помощь")],
+], resize_keyboard=True)
+
+ALL_BUTTONS = [
+    "🎤 Голосовой ввод", "📝 Текстовый ввод", "📊 Таблица",
+    "🏢 Контрагенты", "📈 Отчёт", "📎 Добавить документ",
+    "🗂 Проекты", "🔐 Админ-панель", "ℹ️ Помощь"
+]
 
 
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Выберите действие:",
-        reply_markup=MAIN_MENU,
-    )
-
-
-async def show_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает последние 20 транзакций из Google Sheets."""
-    from services.sheets import get_all_transactions
-
-    await update.message.reply_text("⏳ Загружаю данные...")
-
-    try:
-        records = get_all_transactions()
-    except Exception as e:
-        logger.error(f"show_table error: {e}")
-        await update.message.reply_text(f"❌ Ошибка получения данных:\n<code>{html_module.escape(str(e))}</code>", parse_mode="HTML")
-        return
-
-    if not records:
-        await update.message.reply_text("📭 Записей пока нет.")
-        return
-
-    lines = []
-    for idx, rec in enumerate(records[-20:], 1):
-        parts = [f"<b>#{idx}</b>"]
-        for k, v in rec.items():
-            if v == "" or v is None:
-                continue
-            safe_k = html_module.escape(str(k))
-            safe_v = html_module.escape(str(v))
-            parts.append(f"<b>{safe_k}:</b> {safe_v}")
-        lines.append("\n".join(parts))
-
-    text = "\n\n".join(lines)
-
-    # Telegram лимит 4096 символов
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n<i>...список обрезан, показаны последние записи</i>"
-
-    await update.message.reply_text(text, parse_mode="HTML")
+def _get_spreadsheet_id(context) -> str:
+    sid = context.user_data.get("spreadsheet_id")
+    if not sid:
+        sid = context.bot_data.get("spreadsheet_id") or DEFAULT_SID
+        if sid:
+            context.user_data["spreadsheet_id"] = sid
+    return sid
 
 
 async def handle_menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Роутер для кнопок главного меню."""
     text = update.message.text
+    spreadsheet_id = _get_spreadsheet_id(context)
 
     if text == "📊 Таблица":
-        await show_table(update, context)
-    elif text == "➕ Новая запись":
-        from handlers.transaction import start_transaction
-        await start_transaction(update, context)
+        await show_table(update, context, spreadsheet_id)
     elif text == "🏢 Контрагенты":
-        from handlers.clients import show_clients
-        await show_clients(update, context)
-    elif text == "⚙️ Настройки":
-        await update.message.reply_text("⚙️ Настройки в разработке.")
-    else:
-        await show_main_menu(update, context)
+        from handlers.clients import show_clients_list
+        await show_clients_list(update, context, page=0)
+    elif text == "📈 Отчёт":
+        await update.message.reply_text(
+            "📈 Задайте вопрос голосом или текстом:\n\n"
+            "• Сколько потратили на аренду в этом месяце?\n"
+            "• Покажи все платежи свыше 1000 евро\n"
+            "• Каков баланс за апрель?"
+        )
+    elif text == "📎 Добавить документ":
+        from handlers.attach_doc import show_transactions_for_attach
+        await show_transactions_for_attach(update, context, page=0)
+    elif text == "🗂 Проекты":
+        sid = spreadsheet_id or "не подключена"
+        await update.message.reply_text(
+            f"🗂 *Рабочие пространства*\n\nТекущая таблица: `{sid}`\n\n"
+            f"/settable `ID` — подключить таблицу\n"
+            f"/initsheet — инициализировать листы",
+            parse_mode="Markdown"
+        )
+    elif text == "🔐 Админ-панель":
+        if update.effective_user.id != ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Нет доступа.")
+            return
+        await update.message.reply_text(
+            f"🔐 *Админ-панель*\n\n"
+            f"Таблица: `{spreadsheet_id or 'не подключена'}`\n\n"
+            f"/settable `ID`\n/initsheet",
+            parse_mode="Markdown"
+        )
+    elif text in ("🎤 Голосовой ввод", "📝 Текстовый ввод"):
+        await update.message.reply_text(
+            "🎤 Говорите или пишите команду.\n\nПример:\n"
+            "_Запиши платёж 1650 евро Viza Rent за аренду генератора_",
+            parse_mode="Markdown"
+        )
+    elif text == "ℹ️ Помощь":
+        from handlers.start import help_command
+        await help_command(update, context)
+
+
+async def show_table(update, context, spreadsheet_id):
+    import html as html_module
+    if not spreadsheet_id:
+        await update.message.reply_text("⚠️ Таблица не подключена.\n/settable <ID>")
+        return
+    try:
+        records = get_all_transactions(spreadsheet_id)
+        if not records:
+            await update.message.reply_text("📭 Таблица пуста.")
+            return
+        lines = ["<b>📊 Последние записи:</b>\n"]
+        for r in reversed(records[-10:]):
+            doc_icon = "📎" if r.get("Документ") else ""
+            project = f" | 🗂 {html_module.escape(str(r.get('Проект','')))}" if r.get("Проект") else ""
+            lines.append(
+                f"#{html_module.escape(str(r.get('№','')))} | "
+                f"{html_module.escape(str(r.get('Дата','')))} | "
+                f"{html_module.escape(str(r.get('Сумма','')))} "
+                f"{html_module.escape(str(r.get('Валюта','EUR')))} {doc_icon}{project}\n"
+                f"   <i>{html_module.escape(str(r.get('Комментарий',''))[:35])}</i>"
+            )
+        lines.append(f"\n<i>Всего: {len(records)} записей</i>")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    except Exception as e:
+        import traceback
+        err = traceback.format_exc()
+        await update.message.reply_text(
+            f"❌ Ошибка: {type(e).__name__}: {e}\n\n<pre>{html_module.escape(err[-600:])}</pre>",
+            parse_mode="HTML"
+        )
